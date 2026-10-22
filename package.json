@@ -1,0 +1,73 @@
+{
+  "name": "gitvision-x",
+  "displayName": "GitVision X",
+  "description": "Line-level blame and a cursor-synced commit graph in one quiet, fast workspace.",
+  "version": "0.0.1",
+  "publisher": "gitvision-x",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tigranmk/gitvision-x"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Visualization"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitvision.rebuildIndex",
+        "title": "Rebuild Commit Index",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.showIndexStats",
+        "title": "Show Commit Index Stats",
+        "category": "GitVision"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:prod": "node scripts/build.mjs --production",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:integration": "pnpm build && node test/integration/run.mjs",
+    "fixtures": "node scripts/fixtures.mjs",
+    "bench": "pnpm build:prod && node bench/run.mjs",
+    "package": "pnpm build:prod && vsce package --no-dependencies"
+  },
+  "packageManager": "pnpm@10.33.2",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.20.5",
+    "@types/vscode": "~1.95.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.13.0",
+    "mocha": "^12.0.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5",
+    "zod": "^4.6.7"
+  },
+  "dependencies": {
+    "@gvx/git-engine": "workspace:*",
+    "@gvx/host": "workspace:*",
+    "@gvx/protocol": "workspace:*"
+  }
+}

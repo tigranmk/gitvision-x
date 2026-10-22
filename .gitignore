@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+.vscode-test/
+*.vsix
+test/fixtures/repos/
+bench/results/*.local.json
+.DS_Store
