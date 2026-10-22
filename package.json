@@ -4,7 +4,27 @@
   "description": "Line-level blame and a cursor-synced commit graph in one quiet, fast workspace.",
   "version": "0.0.1",
   "publisher": "tigranmk",
+  "preview": true,
   "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1f2430",
+    "theme": "dark"
+  },
+  "keywords": [
+    "git",
+    "blame",
+    "annotations",
+    "history",
+    "line history",
+    "authorship",
+    "gitlens alternative",
+    "commit graph"
+  ],
+  "homepage": "https://github.com/tigranmk/gitvision-x#readme",
+  "bugs": {
+    "url": "https://github.com/tigranmk/gitvision-x/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/tigranmk/gitvision-x"
@@ -14,8 +34,19 @@
   },
   "categories": [
     "SCM Providers",
-    "Visualization"
+    "Visualization",
+    "Other"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "GitVision X runs git in the workspace, and a repository's git config can make git run programs. It is disabled until you trust the folder."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "GitVision X needs a local git repository on disk."
+    }
+  },
   "main": "./dist/extension.js",
   "activationEvents": [
     "onStartupFinished"

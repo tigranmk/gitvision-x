@@ -176,7 +176,7 @@ async function main() {
     await new Promise((r) => setTimeout(r, 300)); // the disk write is fire-and-forget: let it land
     first.dispose();
     const fromDisk: number[] = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 20; i++) {
       const p = await blameWorkerPool();
       const t = performance.now();
       const b = await p.request('blame.file', { root, path: 'src/hot.ts', storageDir: blameStore }, { affinity: root });

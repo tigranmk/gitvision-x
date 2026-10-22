@@ -125,11 +125,14 @@ describe('BlameService', () => {
     expect(first.source).toBe('git');
     await new Promise((r) => setTimeout(r, 100)); // the write is fire-and-forget
     const counting = new CountingGit('git');
-    const second = await new BlameService(counting).blame(root, 'many.txt', { storageDir });
+    const svc = new BlameService(counting);
+    await svc.warm(root); // done at repo open in the extension
+    counting.calls = 0;
+    const second = await svc.blame(root, 'many.txt', { storageDir });
     expect(second.source).toBe('disk');
+    expect(counting.calls).toBe(0); // HEAD from files, blob from the stored alias: no git process
     expect(Array.from(second.lineCommit)).toEqual(Array.from(first.lineCommit));
     expect(second.commits).toEqual(first.commits);
-    // Only the blob lookup ran; git blame itself was started and aborted at most.
     const third = await new BlameService(new Git('git')).blame(root, 'many.txt', { storageDir, noDiskCache: true });
     expect(third.source).toBe('git');
   });

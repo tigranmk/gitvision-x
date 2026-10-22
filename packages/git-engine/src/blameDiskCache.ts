@@ -34,6 +34,26 @@ export class BlameDiskCache {
     return path.join(this.dir, hash(root, 16), `${hash(`${filePath}\0${blobSha}\0${ignore}`, 32)}.gvb`);
   }
 
+  private aliasFile(root: string, commit: string, filePath: string): string {
+    return path.join(this.dir, hash(root, 16), `${hash(`${commit}\0${filePath}`, 32)}.blob`);
+  }
+
+  /**
+   * (commit, path) → blob SHA, remembered on disk so a new session can find a stored blame without
+   * starting git (a git start costs 25–30 ms on Windows).
+   */
+  async readBlobAlias(root: string, commit: string, filePath: string): Promise<string | null> {
+    const text = await readFile(this.aliasFile(root, commit, filePath), 'utf8').catch(() => null);
+    const [c, p, blob] = text?.split('\0') ?? [];
+    return c === commit && p === filePath && blob && /^[0-9a-f]{40}$/.test(blob) ? blob : null;
+  }
+
+  async writeBlobAlias(root: string, commit: string, filePath: string, blobSha: string): Promise<void> {
+    const file = this.aliasFile(root, commit, filePath);
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, `${commit}\0${filePath}\0${blobSha}`);
+  }
+
   async read(root: string, filePath: string, blobSha: string, ignore: string): Promise<ParsedBlame | null> {
     const file = this.file(root, filePath, blobSha, ignore);
     let buf: Buffer;

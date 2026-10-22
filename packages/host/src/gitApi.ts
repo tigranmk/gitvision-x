@@ -3,6 +3,8 @@ import type { Event, Uri } from 'vscode';
 
 export interface GitRepository {
   readonly rootUri: Uri;
+  /** Fires when vscode.git refreshes the repository (HEAD, refs, index, working tree). */
+  readonly state: { readonly onDidChange: Event<void> };
 }
 export interface GitAPI {
   readonly git: { readonly path: string };

@@ -82,7 +82,11 @@ export class BlameService {
       return result(stored, blobSha, 'disk');
     };
 
-    const known = pathKey ? this.pathBlobs.get(pathKey) : undefined;
+    let known = pathKey ? this.pathBlobs.get(pathKey) : undefined;
+    if (!known && commit && disk && !noDiskCache) {
+      known = (await disk.readBlobAlias(root, commit, file)) ?? undefined;
+      if (known) this.pathBlobs.set(pathKey!, known);
+    }
     if (known) {
       const cached = await fromCaches(known);
       if (cached) return cached;
@@ -121,7 +125,10 @@ export class BlameService {
       const parsed = parser.end();
       stream.flush(parser);
       this.cache.set(memKey(blobSha), parsed);
-      if (disk) void disk.write(root, file, blobSha, ignore.hash, parsed).catch(() => {});
+      if (disk) {
+        void disk.write(root, file, blobSha, ignore.hash, parsed).catch(() => {});
+        if (commit) void disk.writeBlobAlias(root, commit, file, blobSha).catch(() => {});
+      }
       return result(parsed, blobSha, 'git');
     } catch (e) {
       ctl.abort();

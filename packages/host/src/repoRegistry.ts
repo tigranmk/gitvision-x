@@ -51,6 +51,12 @@ export class RepoRegistry implements vscode.Disposable {
     }
   }
 
+  /** The session whose root is this directory, if open. */
+  sessionAt(fsPath: string): RepoSession | undefined {
+    const dir = realDir(fsPath);
+    return this.all().find((s) => sameFsPath(s.root, dir));
+  }
+
   /** The innermost open repo containing a file:// document. */
   fileOf(uri: vscode.Uri): RepoFile | undefined {
     if (uri.scheme !== 'file') return undefined;
@@ -77,8 +83,8 @@ export class RepoRegistry implements vscode.Disposable {
  * editors may hold another spelling. Resolve the file's directory once and cache it.
  */
 const realDirs = new Map<string, string>();
-export function realPath(fsPath: string): string {
-  const dir = path.dirname(fsPath);
+/** A directory's resolved path with forward slashes (cached). */
+export function realDir(dir: string): string {
   let real = realDirs.get(dir);
   if (real === undefined) {
     try {
@@ -89,7 +95,12 @@ export function realPath(fsPath: string): string {
     if (realDirs.size > 2000) realDirs.clear();
     realDirs.set(dir, real);
   }
-  return path.join(real, path.basename(fsPath)).replace(/\\/g, '/');
+  return real.replace(/\\/g, '/');
+}
+
+/** A file's resolved path: its directory resolved, its own name kept. */
+export function realPath(fsPath: string): string {
+  return `${realDir(path.dirname(fsPath)).replace(/\/$/, '')}/${path.basename(fsPath)}`;
 }
 
 const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';

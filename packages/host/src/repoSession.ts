@@ -44,6 +44,11 @@ export class RepoSession implements vscode.Disposable {
     this.disposables.push(this._onDidSync);
   }
 
+  /** Something may have changed in .git: sync after the usual debounce (cheap when nothing did). */
+  poke(): void {
+    this.scheduleSync();
+  }
+
   get root(): string {
     return this.info.root;
   }

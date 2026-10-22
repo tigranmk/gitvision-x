@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import { WorkerPool } from '@gvx/git-engine';
 import { BlameController } from './blame/blameController';
 import { isFailure } from './blame/blameStore';
-import type { GitAPI, GitExtension } from './gitApi';
+import type { GitAPI, GitExtension, GitRepository } from './gitApi';
 import { registerCommitGraphOffer } from './commitGraphOffer';
 import { offerGitLensCoexistence } from './gitlens';
 import { RepoRegistry } from './repoRegistry';
@@ -80,11 +80,17 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(blame, registerCommitGraphOffer(context, pool, repos, log));
     const tryOpen = (dir: string) => repos.open(dir).catch((e) => log.error(`Could not open ${dir}: ${(e as Error).message}`));
     if (gitApi) {
+      // vscode.git's own refresh is a second change signal next to our .git watchers: file events in
+      // .git can arrive late or not at all (seen with FSEvents on CI), and a poke costs one cheap sync.
+      const follow = (r: GitRepository) => {
+        void tryOpen(r.rootUri.fsPath);
+        context.subscriptions.push(r.state.onDidChange(() => repos.sessionAt(r.rootUri.fsPath)?.poke()));
+      };
       context.subscriptions.push(
-        gitApi.onDidOpenRepository((r) => void tryOpen(r.rootUri.fsPath)),
+        gitApi.onDidOpenRepository(follow),
         gitApi.onDidCloseRepository((r) => repos.closeByPath(r.rootUri.fsPath)),
       );
-      for (const r of gitApi.repositories) void tryOpen(r.rootUri.fsPath);
+      gitApi.repositories.forEach(follow);
     }
     // vscode.git may be disabled or still scanning; workspace folders are a fallback.
     for (const f of vscode.workspace.workspaceFolders ?? []) if (f.uri.scheme === 'file') void tryOpen(f.uri.fsPath);
