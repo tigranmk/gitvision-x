@@ -14,8 +14,8 @@ export interface TestRepo {
 }
 
 export function tempDir(prefix = 'gvx-'): string {
-  // realpath: macOS tmp is a symlink and git prints resolved paths.
-  return realpathSync(mkdtempSync(path.join(tmpdir(), prefix)));
+  // Native realpath: resolves the macOS /var symlink and expands Windows 8.3 names (RUNNER~1), like git does.
+  return realpathSync.native(mkdtempSync(path.join(tmpdir(), prefix)));
 }
 
 export function makeRepo(dir = tempDir()): TestRepo {

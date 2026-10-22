@@ -38,7 +38,7 @@ try {
     extensionDevelopmentPath: ROOT,
     extensionTestsPath: path.join(ROOT, 'out/integration/index.cjs'),
     launchArgs: [workspace, '--disable-extensions', '--disable-workspace-trust', '--user-data-dir', path.join(scratch, 'user-data')],
-    extensionTestsEnv: { GVX_WORKSPACE: workspace, GVX_WORKSPACE_REAL: realpathSync(workspace) },
+    extensionTestsEnv: { GVX_WORKSPACE: workspace, GVX_WORKSPACE_REAL: realpathSync.native(workspace) },
   });
 } catch (e) {
   console.error('Integration tests failed:', e);

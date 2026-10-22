@@ -113,6 +113,7 @@ async function main() {
     results,
   };
   const file = path.join(ROOT, 'bench/results', CI ? `m0-${process.platform}.ci.json` : 'm0.local.json');
+  mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(out, null, 2) + '\n');
   console.log(`\nwrote ${path.relative(ROOT, file)}`);
   if (failures.length) {
