@@ -37,6 +37,12 @@ export class IndexStore {
     return this.repos.get(root)?.table;
   }
 
+  /** Null while the repo's index is not loaded in this worker. */
+  contains(root: string, shas: string[]): boolean[] | null {
+    const table = this.repos.get(root)?.table;
+    return table ? shas.map((s) => table.rowOf(s) !== undefined) : null;
+  }
+
   stats(root: string): IndexStats | null {
     return this.repos.get(root)?.stats ?? null;
   }

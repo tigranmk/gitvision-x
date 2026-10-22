@@ -27,6 +27,22 @@ export class BlameStreamParser {
   private lineFile: number[] = [];
   private entry: { commit: number; orig: number; final: number; count: number } | null = null;
 
+  /** `onEntry` fires as each blame entry completes, so callers can stream partial results. */
+  constructor(private readonly onEntry?: (final0: number, count: number, commit: number, orig: number, file: number) => void) {}
+
+  get commitCount(): number {
+    return this.commits.length;
+  }
+  get fileCount(): number {
+    return this.files.length;
+  }
+  commitAt(i: number): BlameCommit {
+    return this.commits[i]!;
+  }
+  fileAt(i: number): string {
+    return this.files[i]!;
+  }
+
   push(chunk: Uint8Array): void {
     const text = this.rest + this.decoder.decode(chunk, { stream: true });
     let start = 0;
@@ -114,6 +130,7 @@ export class BlameStreamParser {
           this.lineFile[final - 1 + i] = fi;
         }
         this.entry = null;
+        this.onEntry?.(final - 1, count, commit, orig, fi);
         break;
       }
       // committer*, author-tz: not needed

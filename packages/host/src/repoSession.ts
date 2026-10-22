@@ -21,6 +21,9 @@ export class RepoSession implements vscode.Disposable {
   private readonly _onDidSync = new vscode.EventEmitter<IndexStats>();
   readonly onDidSync = this._onDidSync.event;
   lastStats: IndexStats | null = null;
+  private markIndexed!: () => void;
+  /** Resolves after the first successful sync: the engine then holds this repo's commit index. */
+  readonly whenIndexed = new Promise<void>((r) => (this.markIndexed = r));
 
   constructor(
     readonly info: RepoInfo,
@@ -76,6 +79,7 @@ export class RepoSession implements vscode.Disposable {
         { affinity: this.root, signal: this.lifetime.signal },
       );
       this.lastStats = stats;
+      this.markIndexed();
       this.log.info(`index ${stats.mode}: ${stats.commitCount} commits in ${stats.durationMs} ms (${this.root})`);
       this._onDidSync.fire(stats);
       return stats;

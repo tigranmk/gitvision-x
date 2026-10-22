@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import * as path from 'node:path';
-import { fwd, makeRepo } from '../../../test/unit/helpers/gitRepo';
+import { fwd, makeRepo, tempDir } from '../../../test/unit/helpers/gitRepo';
 import { BlameService } from './blame';
 import { Git } from './git';
 
@@ -15,10 +15,10 @@ describe('BlameService', () => {
   it('blames HEAD and serves repeats from the cache', async () => {
     const svc = new BlameService(new Git('git'));
     const first = await svc.blame(root, 'src/a.ts');
-    expect(first).toMatchObject({ rev: 'HEAD', cacheHit: false });
+    expect(first).toMatchObject({ rev: repo.git('rev-parse', 'HEAD').trim(), cacheHit: false, source: 'git' });
     expect(first.lineCommit).toHaveLength(2);
     const second = await svc.blame(root, 'src/a.ts');
-    expect(second.cacheHit).toBe(true);
+    expect(second).toMatchObject({ cacheHit: true, source: 'memory' });
     expect(second.lineCommit).not.toBe(first.lineCommit); // copies: transfers must not detach the cache
   });
 
@@ -47,7 +47,7 @@ describe('BlameService', () => {
   it('aborts the git process when cancelled', async () => {
     const ctl = new AbortController();
     ctl.abort();
-    await expect(new BlameService(new Git('git')).blame(root, 'src/a.ts', 'HEAD', ctl.signal)).rejects.toMatchObject({ code: 'cancelled' });
+    await expect(new BlameService(new Git('git')).blame(root, 'src/a.ts', { signal: ctl.signal })).rejects.toMatchObject({ code: 'cancelled' });
   });
 
   it('refuses binary files and blames >20k-line files only on demand', async () => {
@@ -56,7 +56,7 @@ describe('BlameService', () => {
     repo.commit('binary', { 'big.txt': Array.from({ length: 20_001 }, (_, i) => `r${i}`).join('\n') + '\n' });
     await expect(svc.blame(root, 'img.bin')).rejects.toMatchObject({ code: 'binary' });
     await expect(svc.blame(root, 'big.txt')).rejects.toMatchObject({ code: 'too-large' });
-    const forced = await svc.blame(root, 'big.txt', 'HEAD', undefined, true);
+    const forced = await svc.blame(root, 'big.txt', { force: true });
     expect(forced.lineCommit).toHaveLength(20_001);
   });
 
@@ -81,4 +81,64 @@ describe('BlameService', () => {
     expect(h.at(-1)!.summary).toBe('add');
     expect(await svc.lineHistory(root, 'src/renamed.ts', 2, 'HEAD', 1)).toHaveLength(1);
   });
+
+  it('answers a repeat request without starting git', async () => {
+    const counting = new CountingGit('git');
+    const svc = new BlameService(counting);
+    await svc.blame(root, 'src/renamed.ts');
+    counting.calls = 0;
+    const again = await svc.blame(root, 'src/renamed.ts');
+    expect(again.source).toBe('memory');
+    expect(counting.calls).toBe(0);
+  });
+
+  it('streams entries as progress before the final result', async () => {
+    const svc = new BlameService(new Git('git'));
+    repo.commit('many lines', { 'many.txt': Array.from({ length: 300 }, (_, i) => `line ${i}`).join('\n') + '\n' });
+    for (let k = 0; k < 5; k++) {
+      const lines = Array.from({ length: 300 }, (_, i) => (i % 5 === k ? `line ${i} v${k}` : `line ${i}`));
+      repo.commit(`edit ${k}`, { 'many.txt': lines.join('\n') + '\n' });
+    }
+    const covered = new Set<number>();
+    const commitsSeen: string[] = [];
+    let blobSha: string | null = null;
+    const b = await svc.blame(root, 'many.txt', {
+      onProgress: (p) => {
+        blobSha = p.blobSha;
+        commitsSeen.push(...p.commits.map((c) => c.sha));
+        for (let i = 0; i < p.ranges.length; i += 5) {
+          const [final0, count, commit] = [p.ranges[i]!, p.ranges[i + 1]!, p.ranges[i + 2]!];
+          expect(commit).toBeLessThan(commitsSeen.length); // never references a commit not yet sent
+          for (let l = final0; l < final0 + count; l++) covered.add(l);
+        }
+      },
+    });
+    expect(covered.size).toBe(b.lineCommit.length);
+    expect(blobSha).toBe(b.blobSha);
+    expect(commitsSeen).toEqual(b.commits.map((c) => c.sha));
+    expect(b.commits.every((c) => c.author && c.summary)).toBe(true);
+  });
+
+  it('persists blame on disk and serves it to a new session', async () => {
+    const storageDir = tempDir('gvx-blame-store-');
+    const first = await new BlameService(new Git('git')).blame(root, 'many.txt', { storageDir });
+    expect(first.source).toBe('git');
+    await new Promise((r) => setTimeout(r, 100)); // the write is fire-and-forget
+    const counting = new CountingGit('git');
+    const second = await new BlameService(counting).blame(root, 'many.txt', { storageDir });
+    expect(second.source).toBe('disk');
+    expect(Array.from(second.lineCommit)).toEqual(Array.from(first.lineCommit));
+    expect(second.commits).toEqual(first.commits);
+    // Only the blob lookup ran; git blame itself was started and aborted at most.
+    const third = await new BlameService(new Git('git')).blame(root, 'many.txt', { storageDir, noDiskCache: true });
+    expect(third.source).toBe('git');
+  });
 });
+
+class CountingGit extends Git {
+  calls = 0;
+  override stream(...args: Parameters<Git['stream']>): ReturnType<Git['stream']> {
+    this.calls++;
+    return super.stream(...args);
+  }
+}

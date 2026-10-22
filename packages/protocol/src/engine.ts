@@ -55,7 +55,28 @@ export interface BlameResult {
   /** Per final line: index into `files` (differs from the blamed path when -C followed a move). */
   lineFile: Uint32Array;
   files: string[];
+  /** Where the result came from: the worker's memory cache, the on-disk cache, or a git run. */
+  source: 'memory' | 'disk' | 'git';
   cacheHit: boolean;
+}
+
+/**
+ * Streamed while git blame runs: what arrived since the previous progress message.
+ * Commit and file indices continue across messages; `ranges` holds 5-tuples
+ * (first final line 0-based, line count, commit index, first original line 1-based, file index).
+ */
+export interface BlameProgress {
+  blobSha: string | null;
+  commits: BlameCommit[];
+  files: string[];
+  ranges: Uint32Array;
+}
+
+export interface CommitGraphStatus {
+  /** A commit-graph file (or chain) exists. */
+  graph: boolean;
+  /** Every layer carries changed-path Bloom filters. */
+  bloom: boolean;
 }
 
 export interface LineHistoryEntry {
@@ -74,8 +95,19 @@ export type EngineMethods = {
   'repo.resolve': MethodSpec<{ path: string }, RepoInfo | null>;
   'index.sync': MethodSpec<{ root: string; storageDir: string; full?: boolean }, IndexStats, SyncProgress>;
   'index.stats': MethodSpec<{ root: string }, IndexStats | null>;
+  /** Whether each commit is in the repo's index (reachable from a tip); null if the index is not loaded. */
+  'index.contains': MethodSpec<{ root: string; shas: string[] }, boolean[] | null>;
+  'repo.commitGraph': MethodSpec<{ root: string }, CommitGraphStatus>;
+  /** `git commit-graph write --reachable --changed-paths`. */
+  'repo.writeCommitGraph': MethodSpec<{ root: string }, { durationMs: number }>;
   /** Errors with code 'not-tracked', 'binary', 'too-large' (unless `force`), or 'ignore-revs-missing'. */
-  'blame.file': MethodSpec<{ root: string; path: string; rev?: string; force?: boolean }, BlameResult>;
+  'blame.file': MethodSpec<
+    { root: string; path: string; rev?: string; force?: boolean; storageDir?: string; noDiskCache?: boolean },
+    BlameResult,
+    BlameProgress
+  >;
+  /** Starts the repo's blame worker and caches its repo layout and blame config, ahead of the first file. */
+  'blame.warm': MethodSpec<{ root: string }, null>;
   /**
    * Maps buffer lines to lines of the blamed blob (index = buffer line, value = blob line or -1).
    * `map: null` means the buffer equals the blob.

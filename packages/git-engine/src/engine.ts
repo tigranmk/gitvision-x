@@ -1,6 +1,7 @@
 /** Registers the git engine's handlers on an RPC endpoint (runs inside a worker thread). */
 import { withTransfer, type EngineMethods, type RpcEndpoint, type NoMethods } from '@gvx/protocol';
 import { BlameService } from './blame';
+import { commitGraphStatus, writeCommitGraph } from './commitGraph';
 import { Git } from './git';
 import { IndexStore } from './indexStore';
 import { resolveRepo } from './repo';
@@ -30,9 +31,30 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods>): void
 
   rpc.handle('index.stats', ({ root }) => ready().index.stats(root));
 
-  rpc.handle('blame.file', async ({ root, path, rev, force }, { signal }) => {
-    const r = await ready().blame.blame(root, path, rev, signal, force);
+  rpc.handle('index.contains', ({ root, shas }) => ready().index.contains(root, shas));
+
+  rpc.handle('repo.commitGraph', async ({ root }, { signal }) => {
+    const info = await resolveRepo(ready().git, root, signal);
+    return info ? commitGraphStatus(info.commonDir) : { graph: false, bloom: false };
+  });
+
+  rpc.handle('repo.writeCommitGraph', ({ root }, { signal }) => writeCommitGraph(ready().git, root, signal));
+
+  rpc.handle('blame.file', async ({ root, path, rev, force, storageDir, noDiskCache }, { signal, partial }) => {
+    const r = await ready().blame.blame(root, path, {
+      rev,
+      signal,
+      force,
+      storageDir,
+      noDiskCache,
+      onProgress: (p) => partial(withTransfer(p, [p.ranges.buffer as ArrayBuffer])),
+    });
     return withTransfer(r, [r.lineCommit.buffer, r.lineOrig.buffer, r.lineFile.buffer] as ArrayBuffer[]);
+  });
+
+  rpc.handle('blame.warm', async ({ root }) => {
+    await ready().blame.warm(root);
+    return null;
   });
 
   rpc.handle('blame.remap', async ({ root, blobSha, text }, { signal }) => {

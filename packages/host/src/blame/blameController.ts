@@ -52,6 +52,9 @@ export class BlameController implements vscode.Disposable {
   private timer: ReturnType<typeof setTimeout> | undefined;
   /** Bumped on every cursor/edit event; a render finishing with a stale token is dropped. */
   private token = 0;
+  /** Set when the idle render ran but the cursor line was not attributed yet (D11a). */
+  private waiting: number | undefined;
+  private renderStarted = 0;
   private decorated: vscode.TextEditor | undefined;
   private rendered: { uri: string; line: number; info: LineBlame; entry: FileBlame } | undefined;
   private history: { key: string; controller: AbortController; promise: Promise<LineHistoryEntry[] | null> } | undefined;
@@ -65,7 +68,7 @@ export class BlameController implements vscode.Disposable {
     private readonly gitApi: () => GitAPI | undefined,
     log: vscode.LogOutputChannel,
   ) {
-    this.store = new BlameStore(pool, repos, log);
+    this.store = new BlameStore(pool, repos, context.globalStorageUri.fsPath, log);
     this.heat = [0, 1, 2, 3, 4].map((i) =>
       vscode.window.createTextEditorDecorationType({
         gutterIconPath: vscode.Uri.joinPath(context.extensionUri, 'media', `heat-${i}.svg`),
@@ -97,7 +100,11 @@ export class BlameController implements vscode.Disposable {
         this.refreshHeatmaps();
         this.schedule();
       }),
-      repos.onDidOpen(() => this.prefetchVisible()),
+      repos.onDidOpen((session) => {
+        // Spawn the blame worker and cache the repo layout now, not on the first file's critical path.
+        void this.pool.request('blame.warm', { root: session.root }, { affinity: session.root }).catch(() => {});
+        this.prefetchVisible();
+      }),
       repos.onDidSync(({ session, stats }) => {
         if (!stats.refsChanged) return;
         this.store.invalidateRepo(session.root);
@@ -106,8 +113,9 @@ export class BlameController implements vscode.Disposable {
       }),
       this.store.onDidLoad((entry) => {
         this.refreshHeatmaps(entry);
-        if (vscode.window.activeTextEditor?.document.uri.toString() === entry.key) this.schedule(0);
+        this.resumeIfWaiting(entry);
       }),
+      this.store.onDidProgress((entry) => this.resumeIfWaiting(entry)),
       vscode.languages.registerHoverProvider({ scheme: 'file' }, { provideHover: (d, p, t) => this.provideHover(d, p, t) }),
       vscode.commands.registerCommand('gitvision.blame.openCommitDiff', (a: DiffArgs) => this.openDiff(a)),
       vscode.commands.registerCommand('gitvision.blame.copySha', async (sha: string) => {
@@ -116,7 +124,7 @@ export class BlameController implements vscode.Disposable {
       }),
       vscode.commands.registerCommand('gitvision.blame.blameFile', () => {
         const doc = vscode.window.activeTextEditor?.document;
-        if (doc && this.store.ensure(doc, true)) this.schedule(0);
+        if (doc && this.store.ensure(doc, { force: true })) this.schedule(0);
       }),
       vscode.commands.registerCommand('gitvision.blame.toggle', () =>
         vscode.workspace.getConfiguration('gitvision.blame').update('enabled', !this.config.enabled, vscode.ConfigurationTarget.Global),
@@ -159,6 +167,7 @@ export class BlameController implements vscode.Disposable {
   private async render(): Promise<void> {
     const t0 = performance.now();
     const token = this.token;
+    if (this.waiting !== token) this.renderStarted = t0;
     const editor = vscode.window.activeTextEditor;
     if (!this.config.enabled || !editor) return this.clear();
     const doc = editor.document;
@@ -167,17 +176,13 @@ export class BlameController implements vscode.Disposable {
       this.selection.update({ commit: null });
       return this.clear();
     }
-    let warm = true;
-    if (!entry.outcome) {
-      warm = false;
-      await entry.promise;
-      if (token !== this.token) return;
-    }
-    const outcome = entry.outcome!;
-    if (isFailure(outcome) && outcome.code !== 'not-tracked') return this.clear();
+    const view = this.store.view(entry);
+    if (!view) return this.wait(token); // nothing streamed yet
+    if (isFailure(view) && view.code !== 'not-tracked') return this.clear();
+    let warm = !!entry.outcome && this.waiting !== token;
 
     let map: Int32Array | null = null;
-    if (!isFailure(outcome)) {
+    if (!isFailure(view)) {
       const m = this.store.mapFor(entry, doc);
       if (m instanceof Promise) {
         warm = false;
@@ -195,7 +200,7 @@ export class BlameController implements vscode.Disposable {
 
     const sel = editor.selection;
     const line = sel.active.line;
-    const infoAt = (l: number): LineBlame => (isFailure(outcome) ? { kind: 'uncommitted' } : lineBlame(outcome, map, l));
+    const infoAt = (l: number): LineBlame => (isFailure(view) ? { kind: 'uncommitted' } : lineBlame(view, map, l));
     const info = infoAt(line);
     const email = entry.session.info.userEmail;
     const locale = vscode.env.language;
@@ -204,17 +209,20 @@ export class BlameController implements vscode.Disposable {
     if (last > sel.start.line) {
       const infos: LineBlame[] = [];
       for (let l = sel.start.line; l <= last; l++) infos.push(infoAt(l));
+      if (infos.some((i) => i.kind === 'pending')) return this.wait(token);
       text = aggregateText(aggregate(infos, email), nowSec(), locale);
     } else {
+      if (info.kind === 'pending') return this.wait(token);
       text = ghostText(info, email, nowSec(), locale);
     }
+    this.waiting = undefined;
 
     const end = doc.lineAt(line).range.end;
     if (this.decorated && this.decorated !== editor) this.decorated.setDecorations(this.ghost, []);
     editor.setDecorations(this.ghost, [{ range: new vscode.Range(end, end), renderOptions: { after: { contentText: text } } }]);
     this.decorated = editor;
     this.rendered = { uri: entry.key, line, info, entry };
-    this.lastRender = { uri: entry.key, line, text, ms: performance.now() - t0, warm };
+    this.lastRender = { uri: entry.key, line, text, ms: performance.now() - (warm ? t0 : this.renderStarted), warm };
     this.selection.update({ commit: info.kind === 'commit' ? info.commit.sha : null });
 
     if (this.config.statusBar && info.kind === 'commit') {
@@ -227,10 +235,22 @@ export class BlameController implements vscode.Disposable {
     this.preloadHistory(entry, info);
   }
 
+  /** The cursor line is not attributed yet: render again as entries stream in. */
+  private wait(token: number): void {
+    this.waiting = token;
+    if (this.decorated) this.clear();
+  }
+
+  private resumeIfWaiting(entry: FileBlame): void {
+    if (this.waiting === undefined || this.waiting !== this.token) return;
+    if (vscode.window.activeTextEditor?.document.uri.toString() !== entry.key) return;
+    void this.render();
+  }
+
   /** Spec risk: the hover must open fast, so line history loads on cursor idle. */
   private preloadHistory(entry: FileBlame, info: LineBlame): void {
     if (info.kind !== 'commit') return;
-    const key = `${entry.key}#${info.headLine}#${entry.outcome && !isFailure(entry.outcome) ? entry.outcome.blobSha : ''}`;
+    const key = `${entry.key}#${info.headLine}#${entry.blobSha ?? ''}`;
     if (this.history?.key === key) return;
     this.history?.controller.abort();
     const controller = new AbortController();
@@ -267,7 +287,7 @@ export class BlameController implements vscode.Disposable {
       }
       const entry = this.store.get(editor.document);
       if (!entry?.outcome || isFailure(entry.outcome) || (only && only !== entry)) continue;
-      const outcome = entry.outcome;
+      const outcome = { ...entry.outcome, complete: true };
       void Promise.resolve(this.store.mapFor(entry, editor.document)).then(
         (map) => {
           const buckets: vscode.Range[][] = [[], [], [], [], []];

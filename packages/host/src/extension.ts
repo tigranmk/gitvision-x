@@ -9,6 +9,7 @@ import { WorkerPool } from '@gvx/git-engine';
 import { BlameController } from './blame/blameController';
 import { isFailure } from './blame/blameStore';
 import type { GitAPI, GitExtension } from './gitApi';
+import { registerCommitGraphOffer } from './commitGraphOffer';
 import { offerGitLensCoexistence } from './gitlens';
 import { RepoRegistry } from './repoRegistry';
 import { SelectionStore } from './selectionStore';
@@ -76,7 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
       log.warn(`vscode.git API unavailable: ${(e as Error).message}`);
     }
     blame = new BlameController(context, pool, repos, selection, () => gitApi, log);
-    context.subscriptions.push(blame);
+    context.subscriptions.push(blame, registerCommitGraphOffer(context, pool, repos, log));
     const tryOpen = (dir: string) => repos.open(dir).catch((e) => log.error(`Could not open ${dir}: ${(e as Error).message}`));
     if (gitApi) {
       context.subscriptions.push(

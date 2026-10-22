@@ -34,15 +34,29 @@ export function isYou(commit: Pick<BlameCommit, 'authorMail'>, userEmail: string
 
 export const NOT_COMMITTED = 'Not committed yet';
 
-/** Per buffer line: what the ghost text and hover describe. */
+/** Per buffer line: what the ghost text and hover describe. `pending`: git has not reached it yet. */
 export type LineBlame =
   | { kind: 'uncommitted' }
+  | { kind: 'pending' }
   | { kind: 'commit'; commit: BlameCommit; headLine: number; origLine: number; origPath: string };
 
+/** A final BlameResult, or the part streamed so far (unattributed lines hold UNKNOWN_LINE). */
+export type BlameView = Pick<BlameResult, 'commits' | 'files'> & {
+  lineCommit: ArrayLike<number>;
+  lineOrig: ArrayLike<number>;
+  lineFile: ArrayLike<number>;
+  /** False while git is still streaming entries. */
+  complete: boolean;
+};
+export const UNKNOWN_LINE = 0xffffffff;
+
 /** Buffer line → blame of the HEAD blob, through the remap (`null` = buffer equals the blob). */
-export function lineBlame(blame: BlameResult, map: Int32Array | null, bufferLine: number): LineBlame {
+export function lineBlame(blame: BlameView, map: Int32Array | null, bufferLine: number): LineBlame {
   const headLine = map ? (map[bufferLine] ?? -1) : bufferLine;
-  if (headLine < 0 || headLine >= blame.lineCommit.length) return { kind: 'uncommitted' };
+  if (headLine < 0) return { kind: 'uncommitted' };
+  if (headLine >= blame.lineCommit.length || blame.lineCommit[headLine] === UNKNOWN_LINE) {
+    return blame.complete ? { kind: 'uncommitted' } : { kind: 'pending' };
+  }
   const commit = blame.commits[blame.lineCommit[headLine]!]!;
   if (commit.uncommitted) return { kind: 'uncommitted' };
   return { kind: 'commit', commit, headLine, origLine: blame.lineOrig[headLine]!, origPath: blame.files[blame.lineFile[headLine]!]! };
@@ -50,6 +64,7 @@ export function lineBlame(blame: BlameResult, map: Int32Array | null, bufferLine
 
 /** `You, 3 days ago • Fix token refresh (#412)` */
 export function ghostText(info: LineBlame, userEmail: string | null, nowSec: number, locale?: string): string {
+  if (info.kind === 'pending') return '';
   if (info.kind === 'uncommitted') return NOT_COMMITTED;
   const { commit } = info;
   const who = isYou(commit, userEmail) ? 'You' : commit.author;
@@ -69,6 +84,7 @@ export function aggregate(infos: LineBlame[], userEmail: string | null): Aggrega
   let oldest: number | null = null;
   let newest: number | null = null;
   for (const info of infos) {
+    if (info.kind === 'pending') continue;
     const name = info.kind === 'uncommitted' ? NOT_COMMITTED : isYou(info.commit, userEmail) ? 'You' : info.commit.author;
     byAuthor.set(name, (byAuthor.get(name) ?? 0) + 1);
     if (info.kind === 'commit') {
@@ -97,7 +113,7 @@ export function aggregateText(a: Aggregate, nowSec: number, locale?: string): st
 
 /** Age bucket 0 (newest) … 4 (oldest) for the gutter heatmap. */
 export function ageBucket(info: LineBlame, nowSec: number): number {
-  if (info.kind === 'uncommitted') return 0;
+  if (info.kind !== 'commit') return 0;
   const age = nowSec - info.commit.authorTime;
   if (age < 7 * 86400) return 0;
   if (age < 30 * 86400) return 1;

@@ -1,10 +1,10 @@
 /**
- * Performance gates (M0 index, M1 blame). Runs the real bundled worker against the generated fixtures.
+ * Performance gates (M0 index, M1 blame incl. D11). Runs the real bundled worker against the generated fixtures.
  *   pnpm bench          local budgets
  *   pnpm bench --ci     budgets × CI_SLACK (shared CI runners are slower and noisier)
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus, tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { WorkerPool } from '@gvx/git-engine';
@@ -30,6 +30,11 @@ async function measure(name: string, runs: number, fn: (i: number) => Promise<vo
     await fn(i);
     samples.push(Math.round((performance.now() - t) * 10) / 10);
   }
+  record(name, samples, budgetMs);
+}
+
+function record(name: string, samples: number[], budgetMs?: number): void {
+  samples = samples.map((x) => Math.round(x * 10) / 10);
   results.push({ name, samples, budgetMs });
   console.log(
     `${name.padEnd(54)} median ${median(samples).toFixed(1).padStart(7)} ms  p95 ${p95(samples).toFixed(1).padStart(7)} ms` +
@@ -94,47 +99,109 @@ async function main() {
       }
     }, 600);
 
-    let first = true;
-    await measure('blame: src/hot.ts cold (5k-commit file)', 1, async () => {
-      const b = await pool.request('blame.file', { root, path: 'src/hot.ts' }, { affinity: root });
-      if (b.cacheHit || !first) throw new Error('expected a cache miss');
-      first = false;
-    });
-    await measure('blame: src/hot.ts cached', 10, async () => {
-      const b = await pool.request('blame.file', { root, path: 'src/hot.ts' }, { affinity: root });
-      if (!b.cacheHit) throw new Error('expected a cache hit');
-    });
     pool.dispose();
 
-    // M1 (D10): first-ever blame of files with <= 1,000 commits of history, measured from request
-    // to result, in a fresh pool (no worker-side cache). 20 distinct files, 500 commits each.
+    // ---- Blame (M1; D10 prefetch, D11 streaming + disk cache + Bloom filters) ----
+    // Each cold sample uses a fresh pool whose blame worker is already warm (as after repo open),
+    // so samples measure git, not worker startup, and nothing is cached.
+    const blameWorkerPool = async () => {
+      const p = newPool();
+      await p.request('blame.warm', { root }, { affinity: root });
+      return p;
+    };
+    /** Request → the moment `line` (0-based) is attributed by streamed progress, and → complete. */
+    const timeToLine = async (p: WorkerPool, file: string, line: number, storageDir?: string, at = root) => {
+      const t = performance.now();
+      let lineMs: number | null = null;
+      await p.request('blame.file', { root: at, path: file, storageDir }, {
+        affinity: at,
+        onPartial: (pr) => {
+          for (let i = 0; lineMs === null && i < pr.ranges.length; i += 5) {
+            if (line >= pr.ranges[i]! && line < pr.ranges[i]! + pr.ranges[i + 1]!) lineMs = performance.now() - t;
+          }
+        },
+      });
+      const total = performance.now() - t;
+      return { line: lineMs ?? total, total };
+    };
+
+    // In src/hot.ts (4,992 commits), lines 0, 20, …, 180 changed within the last 200 commits;
+    // the others are unchanged since the first commit.
+    const RECENT_LINE = 0;
+    const OLDEST_LINE = 1;
+    const recent: number[] = [];
+    const oldest: number[] = [];
+    const whole: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const p = await blameWorkerPool();
+      recent.push((await timeToLine(p, 'src/hot.ts', RECENT_LINE)).line);
+      p.dispose();
+      const q = await blameWorkerPool();
+      const r = await timeToLine(q, 'src/hot.ts', OLDEST_LINE);
+      oldest.push(r.line);
+      whole.push(r.total);
+      q.dispose();
+    }
+    record('blame cold: recently changed line shown (streamed)', recent, 50);
+    record('blame cold: line unchanged since first commit (documented)', oldest);
+    record('blame cold: src/hot.ts complete (documented)', whole);
+
     const tracked = git('ls-tree', '-r', '--name-only', 'HEAD', 'src/').split('\n').filter((f) => /\/f\d+\.ts$/.test(f));
     if (tracked.length < 40) throw new Error(`expected >= 40 module files in the fixture, found ${tracked.length}`);
     const files = tracked.filter((_, i) => i % 2 === 0).slice(0, 20);
-    const blamePool = newPool();
-    await blamePool.request('blame.file', { root, path: 'src/m1/f1.ts' }, { affinity: root }); // spawn the blame worker
-    await measure('blame cold: 500-commit files, idle', files.length, async (i) => {
+    const others = tracked.filter((_, i) => i % 2 === 1).slice(0, 20);
+    const blamePool = await blameWorkerPool();
+    await measure('blame cold: recently rewritten files, whole file', files.length, async (i) => {
       const b = await blamePool.request('blame.file', { root, path: files[i]! }, { affinity: root });
       if (b.cacheHit) throw new Error('expected a cold blame');
     }, 50);
+    await measure('blame: repeat request (memory, no git process)', 10, async () => {
+      const b = await blamePool.request('blame.file', { root, path: files[0]! }, { affinity: root });
+      if (b.source !== 'memory') throw new Error(`expected memory, got ${b.source}`);
+    }, 16);
     blamePool.dispose();
 
-    const busyPool = newPool();
-    await busyPool.request('blame.file', { root, path: 'src/m1/f1.ts' }, { affinity: root });
+    const busyPool = await blameWorkerPool();
     const indexing = busyPool.request('index.sync', { root, storageDir: storage('busy'), full: true }, { affinity: root });
-    const others = tracked.filter((_, i) => i % 2 === 1).slice(0, 20);
-    await measure('blame cold: 500-commit files, during a 100k index load', others.length, async (i) => {
+    await measure('blame cold: same, during a full 100k index load', others.length, async (i) => {
       await busyPool.request('blame.file', { root, path: others[i]! }, { affinity: root });
     }, 50);
     await indexing;
     busyPool.dispose();
 
-    const worstPool = newPool();
-    await worstPool.request('blame.file', { root, path: 'src/m1/f1.ts' }, { affinity: root });
-    await measure('blame cold: src/hot.ts, 4,992 commits (documented worst case)', 1, async () => {
-      await worstPool.request('blame.file', { root, path: 'src/hot.ts' }, { affinity: root });
-    });
-    worstPool.dispose();
+    // D11c: a file blamed in an earlier session comes back from disk.
+    const blameStore = storage('blame-store');
+    const first = await blameWorkerPool();
+    await timeToLine(first, 'src/hot.ts', OLDEST_LINE, blameStore);
+    await new Promise((r) => setTimeout(r, 300)); // the disk write is fire-and-forget: let it land
+    first.dispose();
+    const fromDisk: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const p = await blameWorkerPool();
+      const t = performance.now();
+      const b = await p.request('blame.file', { root, path: 'src/hot.ts', storageDir: blameStore }, { affinity: root });
+      fromDisk.push(performance.now() - t);
+      if (b.source !== 'disk') throw new Error(`expected disk, got ${b.source}`);
+      p.dispose();
+    }
+    record('blame: src/hot.ts in a new session (disk cache)', fromDisk, 50);
+
+    // D11b: the same worst case after `git commit-graph write --reachable --changed-paths`, on a copy.
+    const bloomRepo = path.join(scratch, 'bloom-repo');
+    cpSync(BIG, bloomRepo, { recursive: true });
+    const bloomRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: bloomRepo, encoding: 'utf8' }).trim();
+    const graphPool = newPool();
+    const written = await graphPool.request('repo.writeCommitGraph', { root: bloomRoot }, { affinity: bloomRoot });
+    graphPool.dispose();
+    record('commit-graph write with Bloom filters, 100k commits (documented)', [written.durationMs]);
+    const bloomOldest: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const p = newPool();
+      await p.request('blame.warm', { root: bloomRoot }, { affinity: bloomRoot });
+      bloomOldest.push((await timeToLine(p, 'src/hot.ts', OLDEST_LINE, undefined, bloomRoot)).line);
+      p.dispose();
+    }
+    record('blame cold: line unchanged since first commit, with Bloom (documented)', bloomOldest);
 
     const largeRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: LARGE, encoding: 'utf8' }).trim();
     const remapPool = newPool();

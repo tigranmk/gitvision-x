@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BlameCommit, BlameResult } from '@gvx/protocol';
-import { aggregate, aggregateText, ageBucket, ghostText, lineBlame, relativeTime, sparklinePositions, truncate } from './format';
+import { aggregate, aggregateText, ageBucket, ghostText, lineBlame, relativeTime, sparklinePositions, truncate, UNKNOWN_LINE } from './format';
 
 const NOW = 1_800_000_000;
 const DAY = 86400;
@@ -16,7 +16,8 @@ const commit = (over: Partial<BlameCommit>): BlameCommit => ({
 });
 
 /** HEAD blob of 4 lines: Ann, Ann, Bob (moved from old.ts), Ann. */
-const blame: BlameResult = {
+const blame: BlameResult & { complete: boolean } = {
+  complete: true,
   rev: 'HEAD',
   blobSha: 'b'.repeat(40),
   commits: [commit({}), commit({ sha: 'c'.repeat(40), author: 'Bob', authorMail: 'bob@x.io', authorTime: NOW - 400 * DAY, summary: 'x'.repeat(80) })],
@@ -24,6 +25,7 @@ const blame: BlameResult = {
   lineOrig: Uint32Array.from([1, 2, 7, 4]),
   lineFile: Uint32Array.from([0, 0, 1, 0]),
   files: ['src/a.ts', 'src/old.ts'],
+  source: 'git',
   cacheHit: false,
 };
 
@@ -54,6 +56,17 @@ describe('lineBlame + ghostText', () => {
   it('truncates long summaries', () => {
     expect(ghostText(lineBlame(blame, null, 2), null, NOW)).toMatch(/^Bob, 1 year ago • x{59}…$/);
     expect(truncate('short')).toBe('short');
+  });
+});
+
+describe('partial (streaming) blame', () => {
+  it('reports lines git has not reached as pending, not as uncommitted', () => {
+    const partial = { ...blame, complete: false, lineCommit: Uint32Array.from([0, UNKNOWN_LINE, 1, 0]) };
+    expect(lineBlame(partial, null, 1)).toEqual({ kind: 'pending' });
+    expect(lineBlame(partial, null, 9)).toEqual({ kind: 'pending' }); // beyond what arrived
+    expect(lineBlame(partial, null, 0).kind).toBe('commit');
+    expect(lineBlame(partial, Int32Array.from([-1]), 0)).toEqual({ kind: 'uncommitted' }); // edited line
+    expect(ghostText({ kind: 'pending' }, null, NOW)).toBe('');
   });
 });
 

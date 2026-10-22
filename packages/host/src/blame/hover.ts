@@ -37,6 +37,10 @@ export function blameHover(opts: {
   md.isTrusted = { enabledCommands: [...HOVER_COMMANDS] };
   md.supportHtml = true;
 
+  if (info.kind === 'pending') {
+    md.appendMarkdown('$(loading~spin) Blaming…');
+    return md;
+  }
   if (info.kind === 'uncommitted') {
     md.appendMarkdown('**Not committed yet**');
     return md;
