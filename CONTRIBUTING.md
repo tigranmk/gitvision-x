@@ -6,8 +6,7 @@ the extension fast, and what a pull request needs.
 - **Bugs and ideas:** [open an issue](https://github.com/tigranmk/gitvision-x/issues). For bugs, include
   your OS, VS Code and git versions, roughly how many commits the repository has, and the **GitVision**
   output channel log (View → Output → GitVision).
-- **Larger changes:** open an issue first so we can agree on the approach. The product spec and build
-  order are in [PLAN.md](PLAN.md); its decision log records why things are the way they are.
+- **Larger changes:** open an issue first so we can agree on the approach.
 
 ## Setup
 
@@ -94,7 +93,7 @@ inflates every result that waits on git.
 2. Make sure `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm test:integration` pass locally.
 3. Add or update tests for what you changed. Bug fixes need a test that failed before the fix.
 4. Update `CHANGELOG.md` for anything a user would notice, and the README if a command or setting changed.
-5. If you made a design decision, add a line to the decision log in `PLAN.md`.
+5. If you made a design decision, explain it and the alternatives you rejected in the pull request description.
 
 **Commit messages:** a short imperative subject line (under 72 characters), a blank line, then what
 changed and why.
