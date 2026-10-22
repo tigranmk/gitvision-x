@@ -34,8 +34,60 @@
         "command": "gitvision.showIndexStats",
         "title": "Show Commit Index Stats",
         "category": "GitVision"
+      },
+      {
+        "command": "gitvision.blame.toggle",
+        "title": "Toggle Inline Blame",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.blame.blameFile",
+        "title": "Blame This File",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.blame.openCommitDiff",
+        "title": "Open Commit Diff",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.blame.copySha",
+        "title": "Copy Commit SHA",
+        "category": "GitVision"
       }
-    ]
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "gitvision.blame.openCommitDiff",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.blame.copySha",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "GitVision",
+      "properties": {
+        "gitvision.blame.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show blame as ghost text on the active line."
+        },
+        "gitvision.blame.gutterHeatmap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Colour the gutter by line age (newest warm, oldest cool)."
+        },
+        "gitvision.blame.statusBar": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the active line's author in the status bar."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -46,7 +98,7 @@
     "test": "vitest run",
     "test:integration": "pnpm build:prod && node test/integration/run.mjs",
     "fixtures": "node scripts/fixtures.mjs",
-    "bench": "pnpm build:prod && node bench/run.mjs",
+    "bench": "node bench/run.mjs",
     "package": "pnpm build:prod && vsce package --no-dependencies"
   },
   "packageManager": "pnpm@10.33.2",

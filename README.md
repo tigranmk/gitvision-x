@@ -4,8 +4,9 @@ Line-level blame and a cursor-synced commit graph in one quiet, fast VS Code ext
 Product spec: [GitVision X — Technical Blueprint & Feature Spec](https://claude.ai/artifact/JkUs4T8Jbyg8oFHm8ude9T).
 Build order and status: [PLAN.md](PLAN.md).
 
-**Status: M0 (foundation).** No user-facing features yet. The extension indexes your repos'
-history in the background; `GitVision: Show Commit Index Stats` shows the result.
+**Status: M1 (inline blame) built; its cold-latency gate is pending a decision (see PLAN.md, D11).**
+Ghost-text blame on the active line, a hover with the line's history, optional gutter heatmap and
+status-bar author. The commit index (M0) runs in the background.
 
 ## Develop
 
@@ -16,7 +17,7 @@ pnpm install
 pnpm build            # dist/extension.js + dist/worker.js
 pnpm test             # unit tests (Vitest, real git in temp dirs)
 pnpm test:integration # runs the extension in a downloaded VS Code
-pnpm bench            # performance budgets on a generated 100k-commit repo
+node bench/run.mjs     # performance budgets on a generated 100k-commit repo (not via pnpm on macOS: see PLAN.md)
 pnpm fixtures         # (re)generate test/fixtures/repos/
 ```
 

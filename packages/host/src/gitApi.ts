@@ -9,6 +9,8 @@ export interface GitAPI {
   readonly repositories: GitRepository[];
   readonly onDidOpenRepository: Event<GitRepository>;
   readonly onDidCloseRepository: Event<GitRepository>;
+  /** A git: URI for `uri` at `ref`, readable by the built-in git content provider. */
+  toGitUri(uri: Uri, ref: string): Uri;
 }
 export interface GitExtension {
   readonly enabled: boolean;

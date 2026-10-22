@@ -1,4 +1,6 @@
-// Bundles bench/bench.ts, makes sure the big fixture exists, then runs the benchmark.
+// Builds the production bundles and bench/bench.ts, makes sure the fixtures exist, then runs the benchmark.
+// Run it with `node bench/run.mjs` on macOS: under a live pnpm process, child processes (git) start
+// ~25 ms slower there for reasons not yet understood, which inflates every git-bound number.
 import { spawnSync } from 'node:child_process';
 import * as esbuild from 'esbuild';
 
@@ -7,7 +9,8 @@ const step = (cmd, args) => {
   const r = spawnSync(cmd, args, { stdio: 'inherit' });
   if (r.status !== 0) process.exit(r.status ?? 1);
 };
-step(process.execPath, ['scripts/fixtures.mjs', '--only', 'big-100k']);
+step(process.execPath, ['scripts/build.mjs', '--production']);
+step(process.execPath, ['scripts/fixtures.mjs', '--only', 'big-100k,large-files']);
 await esbuild.build({
   entryPoints: ['bench/bench.ts'],
   outfile: 'out/bench.cjs',

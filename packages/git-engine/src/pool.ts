@@ -42,7 +42,7 @@ export class WorkerPool {
     opts: RequestOptions<EngineMethods[M]['partial']> & { affinity?: string } = {},
   ): Promise<EngineMethods[M]['result']> {
     if (this.disposed) throw new RpcError('Worker pool disposed', 'disposed');
-    const slot = this.slots[opts.affinity !== undefined ? hash(opts.affinity) % this.size : this.leastLoaded()]!;
+    const slot = this.slots[opts.affinity !== undefined ? this.slotFor(method, opts.affinity) : this.leastLoaded()]!;
     const rpc = this.ensure(slot);
     await slot.init;
     return rpc.request(method, params, opts);
@@ -51,6 +51,15 @@ export class WorkerPool {
   dispose(): void {
     this.disposed = true;
     for (const s of this.slots) this.stop(s);
+  }
+
+  /**
+   * Same repo → same worker per lane, so each worker keeps its repo state. Index work and blame
+   * are separate lanes on different workers: a 100k-commit index load must not delay the ghost text.
+   */
+  private slotFor(method: string, affinity: string): number {
+    const lane = method.startsWith('blame.') ? 1 : 0;
+    return (hash(affinity) + lane) % this.size;
   }
 
   private leastLoaded(): number {

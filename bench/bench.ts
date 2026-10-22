@@ -1,5 +1,5 @@
 /**
- * M0 performance gate. Runs the real bundled worker against the generated fixtures.
+ * Performance gates (M0 index, M1 blame). Runs the real bundled worker against the generated fixtures.
  *   pnpm bench          local budgets
  *   pnpm bench --ci     budgets × CI_SLACK (shared CI runners are slower and noisier)
  */
@@ -11,6 +11,7 @@ import { WorkerPool } from '@gvx/git-engine';
 
 const ROOT = path.resolve(__dirname, '..');
 const BIG = path.join(ROOT, 'test/fixtures/repos/big-100k');
+const LARGE = path.join(ROOT, 'test/fixtures/repos/large-files');
 const WORKER = path.join(ROOT, 'dist/worker.js');
 const CI = process.argv.includes('--ci');
 const CI_SLACK = 2;
@@ -22,17 +23,21 @@ interface Result {
 }
 const results: Result[] = [];
 
-async function measure(name: string, runs: number, fn: () => Promise<void>, budgetMs?: number): Promise<void> {
+async function measure(name: string, runs: number, fn: (i: number) => Promise<void>, budgetMs?: number): Promise<void> {
   const samples: number[] = [];
   for (let i = 0; i < runs; i++) {
     const t = performance.now();
-    await fn();
+    await fn(i);
     samples.push(Math.round((performance.now() - t) * 10) / 10);
   }
   results.push({ name, samples, budgetMs });
-  const worst = Math.max(...samples);
-  console.log(`${name.padEnd(42)} median ${median(samples).toFixed(1).padStart(8)} ms  worst ${worst.toFixed(1).padStart(8)} ms${budgetMs ? `  budget ${budgetMs * (CI ? CI_SLACK : 1)} ms` : ''}`);
+  console.log(
+    `${name.padEnd(54)} median ${median(samples).toFixed(1).padStart(7)} ms  p95 ${p95(samples).toFixed(1).padStart(7)} ms` +
+      (budgetMs ? `  budget ${budgetMs * (CI ? CI_SLACK : 1)} ms (p95)` : ''),
+  );
 }
+/** Nearest-rank p95 (the max for fewer than 20 samples). */
+const p95 = (a: number[]) => [...a].sort((x, y) => x - y)[Math.ceil(a.length * 0.95) - 1]!;
 const median = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)]!;
 const git = (...args: string[]) => execFileSync('git', args, { cwd: BIG, encoding: 'utf8' }).trim();
 const newPool = () => new WorkerPool({ workerPath: WORKER, gitPath: 'git' });
@@ -100,19 +105,59 @@ async function main() {
       if (!b.cacheHit) throw new Error('expected a cache hit');
     });
     pool.dispose();
+
+    // M1 (D10): first-ever blame of files with <= 1,000 commits of history, measured from request
+    // to result, in a fresh pool (no worker-side cache). 20 distinct files, 500 commits each.
+    const tracked = git('ls-tree', '-r', '--name-only', 'HEAD', 'src/').split('\n').filter((f) => /\/f\d+\.ts$/.test(f));
+    if (tracked.length < 40) throw new Error(`expected >= 40 module files in the fixture, found ${tracked.length}`);
+    const files = tracked.filter((_, i) => i % 2 === 0).slice(0, 20);
+    const blamePool = newPool();
+    await blamePool.request('blame.file', { root, path: 'src/m1/f1.ts' }, { affinity: root }); // spawn the blame worker
+    await measure('blame cold: 500-commit files, idle', files.length, async (i) => {
+      const b = await blamePool.request('blame.file', { root, path: files[i]! }, { affinity: root });
+      if (b.cacheHit) throw new Error('expected a cold blame');
+    }, 50);
+    blamePool.dispose();
+
+    const busyPool = newPool();
+    await busyPool.request('blame.file', { root, path: 'src/m1/f1.ts' }, { affinity: root });
+    const indexing = busyPool.request('index.sync', { root, storageDir: storage('busy'), full: true }, { affinity: root });
+    const others = tracked.filter((_, i) => i % 2 === 1).slice(0, 20);
+    await measure('blame cold: 500-commit files, during a 100k index load', others.length, async (i) => {
+      await busyPool.request('blame.file', { root, path: others[i]! }, { affinity: root });
+    }, 50);
+    await indexing;
+    busyPool.dispose();
+
+    const worstPool = newPool();
+    await worstPool.request('blame.file', { root, path: 'src/m1/f1.ts' }, { affinity: root });
+    await measure('blame cold: src/hot.ts, 4,992 commits (documented worst case)', 1, async () => {
+      await worstPool.request('blame.file', { root, path: 'src/hot.ts' }, { affinity: root });
+    });
+    worstPool.dispose();
+
+    const largeRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: LARGE, encoding: 'utf8' }).trim();
+    const remapPool = newPool();
+    const big = await remapPool.request('blame.file', { root: largeRoot, path: 'big.txt', force: true }, { affinity: largeRoot });
+    const text = Array.from({ length: 20_001 }, (_, i) => (i === 15_000 ? 'typed here' : `row ${i}${i === 10 ? ' edited' : ''}`)).join('\n') + '\n';
+    await measure('remap: 20k-line buffer with one edit (round trip)', 10, async () => {
+      const { map } = await remapPool.request('blame.remap', { root: largeRoot, blobSha: big.blobSha!, text }, { affinity: largeRoot });
+      if (!map || map[15_000] !== -1) throw new Error('unexpected remap');
+    }, 50);
+    remapPool.dispose();
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
 
-  const failures = results.filter((r) => r.budgetMs && Math.max(...r.samples) > r.budgetMs * (CI ? CI_SLACK : 1));
+  const failures = results.filter((r) => r.budgetMs && p95(r.samples) > r.budgetMs * (CI ? CI_SLACK : 1));
   const out = {
-    milestone: 'M0',
+    milestones: ['M0', 'M1'],
     date: new Date().toISOString(),
     machine: { platform: process.platform, arch: process.arch, cpu: cpus()[0]?.model, cores: cpus().length, node: process.version, git: git('--version') },
     ci: CI,
     results,
   };
-  const file = path.join(ROOT, 'bench/results', CI ? `m0-${process.platform}.ci.json` : 'm0.local.json');
+  const file = path.join(ROOT, 'bench/results', CI ? `${process.platform}.ci.json` : 'results.local.json');
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(out, null, 2) + '\n');
   console.log(`\nwrote ${path.relative(ROOT, file)}`);

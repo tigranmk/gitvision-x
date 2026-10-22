@@ -36,6 +36,14 @@ describe('WorkerPool', () => {
     }
   });
 
+  it('runs blame on a different worker than index work for the same repo', async () => {
+    const before = pool.started;
+    await pool.request('index.stats', { root }, { affinity: root });
+    await pool.request('blame.file', { root, path: 'a.txt' }, { affinity: root });
+    expect(pool.started).toBe(2);
+    expect(before).toBeLessThanOrEqual(2);
+  });
+
   it('surfaces git errors with their message', async () => {
     await expect(pool.request('blame.file', { root, path: 'missing.txt' }, { affinity: root })).rejects.toMatchObject({ code: 'not-tracked' });
   });

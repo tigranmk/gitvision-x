@@ -8,8 +8,9 @@ interface TestState {
   activationMs: number;
   workersStarted: number;
   repos: { info: { root: string; gitDir: string; commonDir: string }; stats: { commitCount: number; mode: string } | null }[];
-  selection: { repo: string | null; file: string | null; line: number | null };
+  selection: { repo: string | null; file: string | null; line: number | null; commit: string | null };
   refsEvents: { root: string; mode: string }[];
+  lastRender?: { uri: string; line: number; text: string; ms: number; warm: boolean };
 }
 
 const workspace = process.env.GVX_WORKSPACE!;
@@ -92,6 +93,129 @@ export function defineSuite(): void {
       assert.equal(a.commits, 2);
       const b = await vscode.commands.executeCommand<B>('gitvision._test.blame', realRoot, 'src/app.ts');
       assert.equal(b.cacheHit, true);
+    });
+  });
+
+  describe('F1 — inline blame', () => {
+    const appPath = () => path.join(workspace, 'src', 'app.ts');
+    let editor: vscode.TextEditor;
+
+    async function rendered(line: number, match?: RegExp, uri = editor.document.uri) {
+      try {
+        return await waitFor(`ghost text on line ${line}`, async () => {
+          const r = (await state()).lastRender;
+          return r && r.uri === uri.toString() && r.line === line && (!match || match.test(r.text)) && r;
+        });
+      } catch (e) {
+        const r = (await state()).lastRender;
+        throw new Error(`${(e as Error).message} matching ${match}; last render: ${JSON.stringify(r && { file: path.basename(r.uri), line: r.line, text: r.text })}`, {
+          cause: e,
+        });
+      }
+    }
+    const moveTo = (line: number, toLine = line) => {
+      editor.selection = new vscode.Selection(line, 0, toLine, toLine === line ? 0 : 1);
+    };
+
+    before(async () => {
+      editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(appPath()));
+    });
+
+    it('shows author, age and summary on the active line, from cache in < 16 ms', async () => {
+      moveTo(0);
+      // "You": the fixture's user.email is also its commits' author email.
+      const first = await rendered(0, /^You, .+ ago • initial$/);
+      assert.ok(first.text);
+      moveTo(11);
+      const r = await rendered(11, / • tweak app$/);
+      assert.equal(r.warm, true, 'blame and line map were prefetched');
+      console.log(`      warm render ${r.ms.toFixed(2)} ms`);
+      assert.ok(r.ms < 16, `warm render took ${r.ms.toFixed(1)} ms`);
+      assert.match((await state()).selection.commit ?? '', /^[0-9a-f]{40}$/);
+    });
+
+    it('prefetched blame when the file opened (cold time logged)', async () => {
+      const b = await vscode.commands.executeCommand<{ known: boolean; coldMs: number; failure: string | null }>('gitvision._test.fileBlame', editor.document.uri);
+      assert.equal(b.known, true);
+      assert.equal(b.failure, null);
+      console.log(`      open → blame ready ${b.coldMs.toFixed(1)} ms (small file)`);
+    });
+
+    it('remaps edited buffers: inserted lines are not committed, others keep their commit', async () => {
+      await editor.edit((e) => e.insert(new vscode.Position(0, 0), '// new line\n'));
+      moveTo(0);
+      await rendered(0, /^Not committed yet$/);
+      moveTo(1);
+      await rendered(1, / • initial$/);
+      await vscode.commands.executeCommand('undo');
+    });
+
+    it('summarises a multi-line selection', async () => {
+      moveTo(0, 11);
+      await rendered(11, /^12 lines: You · oldest .+ · newest .+$/);
+    });
+
+    it('hover on the annotation shows the commit and the line history', async () => {
+      moveTo(11);
+      await rendered(11);
+      const line = editor.document.lineAt(11);
+      // Let the idle-time history preload land.
+      await new Promise((r) => setTimeout(r, 500));
+      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', editor.document.uri, line.range.end);
+      const text = hovers.flatMap((h) => h.contents.map((c) => (typeof c === 'string' ? c : c.value))).join('\n');
+      assert.match(text, /\*\*You \(Fixture Bot\)\*\*/);
+      assert.match(text, /tweak app/);
+      assert.match(text, /History of this line, last \d+/);
+      assert.match(text, /command:gitvision\.blame\.openCommitDiff/);
+    });
+
+    it('untracked files show Not committed yet', async () => {
+      const p = path.join(workspace, 'scratch.ts');
+      writeFileSync(p, 'let x = 1;\n');
+      editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(p));
+      moveTo(0);
+      await rendered(0, /^Not committed yet$/);
+    });
+
+    it('follows code moved from another file (-C) and refreshes after a commit', async () => {
+      writeFileSync(path.join(workspace, 'src', 'lib.ts'), Array.from({ length: 8 }, (_, i) => `export const shared${i} = ${i * 10};`).join('\n') + '\n');
+      git('add', '-A');
+      git('commit', '-q', '-m', 'add lib');
+      const lines = Array.from({ length: 8 }, (_, i) => `export const shared${i} = ${i * 10};`);
+      writeFileSync(path.join(workspace, 'src', 'lib.ts'), lines.slice(0, 2).join('\n') + '\n');
+      writeFileSync(path.join(workspace, 'src', 'moved.ts'), lines.slice(2).join('\n') + '\n');
+      git('add', '-A');
+      git('commit', '-q', '-m', 'split lib');
+      editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(path.join(workspace, 'src', 'moved.ts')));
+      moveTo(0);
+      await rendered(0, / • add lib$/);
+      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', editor.document.uri, editor.document.lineAt(0).range.end);
+      const text = hovers.flatMap((h) => h.contents.map((c) => (typeof c === 'string' ? c : c.value))).join('\n');
+      assert.match(text, /moved from `src\/lib\.ts`/);
+
+      // A new commit moves HEAD: blame must refresh without reopening the file.
+      writeFileSync(path.join(workspace, 'src', 'moved.ts'), ['// header', ...lines.slice(2)].join('\n') + '\n');
+      git('commit', '-qam', 'add header');
+      // The editor reloads the file from disk; the inserted top line shifts the cursor, so wait for it first.
+      await waitFor('reload from disk', async () => editor.document.lineAt(0).text === '// header');
+      moveTo(0);
+      await rendered(0, / • add header$/);
+    });
+
+    it('blames >20k-line files only on demand', async () => {
+      const p = path.join(workspace, 'huge.txt');
+      writeFileSync(p, Array.from({ length: 20_001 }, (_, i) => `row ${i}`).join('\n') + '\n');
+      git('add', 'huge.txt');
+      git('commit', '-qm', 'huge file');
+      editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(p));
+      const b = await waitFor('too-large outcome', async () => {
+        const r = await vscode.commands.executeCommand<{ known: boolean; failure: string | null }>('gitvision._test.fileBlame', editor.document.uri);
+        return r.known && r;
+      });
+      assert.equal(b.failure, 'too-large');
+      await vscode.commands.executeCommand('gitvision.blame.blameFile');
+      moveTo(5);
+      await rendered(5, / • huge file$/);
     });
   });
 }
