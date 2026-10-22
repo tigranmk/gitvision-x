@@ -44,7 +44,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:integration": "pnpm build && node test/integration/run.mjs",
+    "test:integration": "pnpm build:prod && node test/integration/run.mjs",
     "fixtures": "node scripts/fixtures.mjs",
     "bench": "pnpm build:prod && node bench/run.mjs",
     "package": "pnpm build:prod && vsce package --no-dependencies"

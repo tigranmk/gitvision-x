@@ -43,6 +43,7 @@ export function defineSuite(): void {
 
     it('activates within the 30 ms budget', async () => {
       const s = await state();
+      console.log(`      activate() took ${s.activationMs.toFixed(1)} ms (${process.platform})`);
       assert.ok(s.activationMs < 30, `activate() took ${s.activationMs.toFixed(1)} ms`);
     });
 
