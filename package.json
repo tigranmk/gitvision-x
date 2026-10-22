@@ -3,7 +3,7 @@
   "displayName": "GitVision X",
   "description": "Line-level blame and a cursor-synced commit graph in one quiet, fast workspace.",
   "version": "0.0.1",
-  "publisher": "gitvision-x",
+  "publisher": "tigranmk",
   "license": "MIT",
   "repository": {
     "type": "git",
