@@ -1,4 +1,5 @@
 // Bundles the extension host and the git worker as separate CommonJS files.
+import { rmSync } from 'node:fs';
 import * as esbuild from 'esbuild';
 
 const production = process.argv.includes('--production');
@@ -14,6 +15,9 @@ const common = {
   define: { __DEV__: JSON.stringify(!production) },
   logLevel: 'info',
 };
+
+// Production output must not carry stale dev files (source maps) into the VSIX.
+if (production) rmSync('dist', { recursive: true, force: true });
 
 const targets = [
   { ...common, entryPoints: ['packages/host/src/extension.ts'], outfile: 'dist/extension.js', external: ['vscode'] },
