@@ -3,10 +3,10 @@ import type { RepoInfo } from '@gvx/protocol';
 import type { Git } from './git';
 
 export async function resolveRepo(git: Git, dir: string, signal?: AbortSignal): Promise<RepoInfo | null> {
-  const out = await git.tryText(
-    ['rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir', '--is-shallow-repository'],
-    { cwd: dir, signal },
-  );
+  const [out, email] = await Promise.all([
+    git.tryText(['rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir', '--is-shallow-repository'], { cwd: dir, signal }),
+    git.tryText(['config', '--get', 'user.email'], { cwd: dir, signal }),
+  ]);
   if (!out) return null;
   const [root, gitDir, commonDir, shallow] = out.split('\n');
   if (!root || !gitDir || !commonDir) return null;
@@ -16,6 +16,7 @@ export async function resolveRepo(git: Git, dir: string, signal?: AbortSignal): 
     // --git-common-dir is relative to the cwd unless the repo is a linked worktree.
     commonDir: path.resolve(dir, commonDir).replace(/\\/g, '/'),
     isShallow: shallow === 'true',
+    userEmail: email?.trim() || null,
   };
 }
 

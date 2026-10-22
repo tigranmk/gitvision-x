@@ -9,6 +9,8 @@ export interface RepoInfo {
   /** Shared git dir: refs and packed-refs live here (differs from gitDir in linked worktrees). */
   commonDir: string;
   isShallow: boolean;
+  /** `git config user.email` for this repo, used to show "You". */
+  userEmail: string | null;
 }
 
 export type SyncMode = 'cached' | 'incremental' | 'full' | 'unchanged';
@@ -56,10 +58,29 @@ export interface BlameResult {
   cacheHit: boolean;
 }
 
+export interface LineHistoryEntry {
+  sha: string;
+  author: string;
+  authorMail: string;
+  authorTime: number;
+  summary: string;
+}
+
+/** Files above this many lines are blamed on demand only (spec F1). */
+export const AUTO_BLAME_MAX_LINES = 20_000;
+
 export type EngineMethods = {
   'engine.init': MethodSpec<{ gitPath: string }, { gitVersion: string }>;
   'repo.resolve': MethodSpec<{ path: string }, RepoInfo | null>;
   'index.sync': MethodSpec<{ root: string; storageDir: string; full?: boolean }, IndexStats, SyncProgress>;
   'index.stats': MethodSpec<{ root: string }, IndexStats | null>;
-  'blame.file': MethodSpec<{ root: string; path: string; rev?: string }, BlameResult>;
+  /** Errors with code 'not-tracked', 'binary', 'too-large' (unless `force`), or 'ignore-revs-missing'. */
+  'blame.file': MethodSpec<{ root: string; path: string; rev?: string; force?: boolean }, BlameResult>;
+  /**
+   * Maps buffer lines to lines of the blamed blob (index = buffer line, value = blob line or -1).
+   * `map: null` means the buffer equals the blob.
+   */
+  'blame.remap': MethodSpec<{ root: string; blobSha: string; text: string }, { map: Int32Array | null }>;
+  /** The last `count` commits that touched a line (1-based, at `rev`), newest first; follows renames. */
+  'blame.lineHistory': MethodSpec<{ root: string; path: string; line: number; rev?: string; count?: number }, LineHistoryEntry[]>;
 };

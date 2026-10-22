@@ -49,4 +49,36 @@ describe('BlameService', () => {
     ctl.abort();
     await expect(new BlameService(new Git('git')).blame(root, 'src/a.ts', 'HEAD', ctl.signal)).rejects.toMatchObject({ code: 'cancelled' });
   });
+
+  it('refuses binary files and blames >20k-line files only on demand', async () => {
+    const svc = new BlameService(new Git('git'));
+    writeFileSync(path.join(repo.dir, 'img.bin'), Buffer.from([1, 0, 2, 3]));
+    repo.commit('binary', { 'big.txt': Array.from({ length: 20_001 }, (_, i) => `r${i}`).join('\n') + '\n' });
+    await expect(svc.blame(root, 'img.bin')).rejects.toMatchObject({ code: 'binary' });
+    await expect(svc.blame(root, 'big.txt')).rejects.toMatchObject({ code: 'too-large' });
+    const forced = await svc.blame(root, 'big.txt', 'HEAD', undefined, true);
+    expect(forced.lineCommit).toHaveLength(20_001);
+  });
+
+  it('remaps buffer lines onto the blamed blob', async () => {
+    const svc = new BlameService(new Git('git'));
+    const b = await svc.blame(root, 'src/a.ts');
+    expect(await svc.remap(root, b.blobSha!, 'const a = 1;\nconst  b = 2;\n')).toBeNull();
+    expect(await svc.remap(root, b.blobSha!, 'const a = 1;\r\nconst  b = 2;\r\n')).toBeNull(); // CRLF checkout
+    const map = await svc.remap(root, b.blobSha!, '// header\nconst a = 1;\nconst  b = 2;\n');
+    expect(Array.from(map!)).toEqual([-1, 0, 1]);
+  });
+
+  it('lists the commits that touched a line, newest first, across renames', async () => {
+    const svc = new BlameService(new Git('git'));
+    repo.git('mv', 'src/a.ts', 'src/renamed.ts');
+    repo.commit('rename');
+    const c3 = repo.commit('edit after rename', { 'src/renamed.ts': 'const a = 1;\nconst b = 3;\n' });
+    const h = await svc.lineHistory(root, 'src/renamed.ts', 2);
+    expect(h).toHaveLength(3);
+    expect(h.slice(0, 2).map((e) => e.sha)).toEqual([c3, fmt]);
+    expect(h[0]).toMatchObject({ summary: 'edit after rename', author: 'Test User' });
+    expect(h.at(-1)!.summary).toBe('add');
+    expect(await svc.lineHistory(root, 'src/renamed.ts', 2, 'HEAD', 1)).toHaveLength(1);
+  });
 });

@@ -30,8 +30,17 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods>): void
 
   rpc.handle('index.stats', ({ root }) => ready().index.stats(root));
 
-  rpc.handle('blame.file', async ({ root, path, rev }, { signal }) => {
-    const r = await ready().blame.blame(root, path, rev, signal);
+  rpc.handle('blame.file', async ({ root, path, rev, force }, { signal }) => {
+    const r = await ready().blame.blame(root, path, rev, signal, force);
     return withTransfer(r, [r.lineCommit.buffer, r.lineOrig.buffer, r.lineFile.buffer] as ArrayBuffer[]);
   });
+
+  rpc.handle('blame.remap', async ({ root, blobSha, text }, { signal }) => {
+    const map = await ready().blame.remap(root, blobSha, text, signal);
+    return map ? withTransfer({ map }, [map.buffer as ArrayBuffer]) : { map };
+  });
+
+  rpc.handle('blame.lineHistory', ({ root, path, line, rev, count }, { signal }) =>
+    ready().blame.lineHistory(root, path, line, rev, count, signal),
+  );
 }
