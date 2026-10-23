@@ -1,6 +1,7 @@
 **
 !dist/**
-!media/**
+!media/icon.png
+!media/heat-*.svg
 !package.json
 !README.md
 !CHANGELOG.md

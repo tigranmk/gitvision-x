@@ -155,7 +155,13 @@ async function main() {
     record('blame cold: line unchanged since first commit (documented)', oldest);
     record('blame cold: src/hot.ts complete (documented)', whole);
 
-    const tracked = git('ls-tree', '-r', '--name-only', 'HEAD', 'src/').split('\n').filter((f) => /\/f\d+\.ts$/.test(f));
+    // Only files changed on the main line in the last 2,000 commits. A few module files are changed only
+    // on side branches whose changes the merges drop, so they keep their first-commit content and blame
+    // walks all 100k commits (the documented "unchanged since first commit" case, ~0.9 s).
+    const recentlyChanged = new Set(git('log', '--first-parent', '-n', '2000', '--format=', '--name-only').split('\n'));
+    const tracked = git('ls-tree', '-r', '--name-only', 'HEAD', 'src/')
+      .split('\n')
+      .filter((f) => /\/f\d+\.ts$/.test(f) && recentlyChanged.has(f));
     if (tracked.length < 40) throw new Error(`expected >= 40 module files in the fixture, found ${tracked.length}`);
     const files = tracked.filter((_, i) => i % 2 === 0).slice(0, 20);
     const others = tracked.filter((_, i) => i % 2 === 1).slice(0, 20);

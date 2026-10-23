@@ -1,7 +1,7 @@
 {
   "name": "gitvision-x",
   "displayName": "GitVision X",
-  "description": "Line-level blame and a cursor-synced commit graph in one quiet, fast workspace.",
+  "description": "Fast, quiet git blame for the line you're on, with the line's history on hover.",
   "version": "0.0.1",
   "publisher": "tigranmk",
   "preview": true,
@@ -18,8 +18,7 @@
     "history",
     "line history",
     "authorship",
-    "gitlens alternative",
-    "commit graph"
+    "inline blame"
   ],
   "homepage": "https://github.com/tigranmk/gitvision-x#readme",
   "bugs": {

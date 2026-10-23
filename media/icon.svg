@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a3142"/>
+      <stop offset="1" stop-color="#1f2430"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <!-- graph line with older commits -->
+  <line x1="200" y1="44" x2="200" y2="212" stroke="#7aa2f7" stroke-opacity=".35" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="200" cy="76" r="9" fill="#2a3142" stroke="#7aa2f7" stroke-opacity=".6" stroke-width="5"/>
+  <circle cx="200" cy="180" r="9" fill="#232938" stroke="#7aa2f7" stroke-opacity=".6" stroke-width="5"/>
+  <!-- code lines -->
+  <rect x="40" y="69" width="104" height="14" rx="7" fill="#8b93a7" fill-opacity=".45"/>
+  <rect x="40" y="173" width="122" height="14" rx="7" fill="#8b93a7" fill-opacity=".45"/>
+  <!-- current line, its ghost blame, and its commit -->
+  <rect x="24" y="106" width="208" height="44" rx="14" fill="#ffffff" fill-opacity=".07"/>
+  <rect x="40" y="121" width="76" height="14" rx="7" fill="#e6e9ef"/>
+  <rect x="128" y="121" width="44" height="14" rx="7" fill="#7aa2f7" fill-opacity=".55"/>
+  <circle cx="200" cy="128" r="15" fill="#ff9e64"/>
+  <circle cx="200" cy="128" r="6" fill="#1f2430"/>
+</svg>
