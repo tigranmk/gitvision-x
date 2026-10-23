@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { realpathSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 
@@ -13,8 +13,9 @@ interface TestState {
   lastRender?: { uri: string; line: number; text: string; ms: number; warm: boolean };
 }
 
-const workspace = process.env.GVX_WORKSPACE!;
-const realRoot = process.env.GVX_WORKSPACE_REAL!.replace(/\\/g, '/');
+// A remote extension host doesn't get the runner's env, so fall back to the window's folder.
+const workspace = process.env.GVX_WORKSPACE ?? vscode.workspace.workspaceFolders![0]!.uri.fsPath;
+const realRoot = (process.env.GVX_WORKSPACE_REAL ?? realpathSync.native(workspace)).replace(/\\/g, '/');
 const state = () => vscode.commands.executeCommand<TestState>('gitvision._test.state');
 
 async function waitFor<T>(what: string, probe: () => Promise<T | undefined | false>, timeoutMs = 10_000): Promise<T> {
@@ -147,7 +148,8 @@ export function defineSuite(): void {
       await rendered(0, /^Not committed yet$/);
       moveTo(1);
       await rendered(1, / • initial$/);
-      await vscode.commands.executeCommand('undo');
+      // Not 'undo': that acts on whatever has focus, which in a remote window isn't always the editor.
+      await editor.edit((e) => e.delete(new vscode.Range(0, 0, 1, 0)));
     });
 
     it('summarises a multi-line selection', async () => {

@@ -76,6 +76,32 @@ different workers, so loading a large index never delays blame.
 - CI runs lint, typecheck, unit, benchmark and integration on Linux, macOS and Windows, plus the
   integration suite on VS Code 1.95.0.
 
+### Remote windows
+
+`test/integration/run-remote.mjs` runs the integration suite in a Remote-SSH window, with the extension
+host on a Linux machine. It isn't in CI. To run it against a local container (needs Docker):
+
+```sh
+ssh-keygen -t ed25519 -N '' -f /tmp/gvx-key
+docker build -t gvx-ssh-host test/remote-host
+docker run -d --name gvx-ssh -p 127.0.0.1:2222:22 -e AUTHORIZED_KEY="$(cat /tmp/gvx-key.pub)" \
+  -v "$(mktemp -d):/mnt/host" gvx-ssh-host
+cat > /tmp/gvx-ssh-config <<CFG
+Host gvx-ssh
+  HostName 127.0.0.1
+  Port 2222
+  User dev
+  IdentityFile /tmp/gvx-key
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+CFG
+node test/integration/run-remote.mjs --ssh gvx-ssh --ssh-config /tmp/gvx-ssh-config
+```
+
+Add `--remote-dir /mnt/host/gvx-remote` to put the workspace on a folder mounted from your machine, as
+Dev Containers does. Dev Containers itself can't be driven by the test runner: it asks for a one-time
+confirmation before attaching, and VS Code refuses dialogs in test mode.
+
 ## Performance budgets
 
 `bench/bench.ts` holds the budgets: for example, a recently changed line's blame shown within 50 ms on a

@@ -121,7 +121,9 @@ don't see blame twice. Nothing else in GitLens is changed, and you can decline.
 - Files over 20,000 lines are only blamed on request (**GitVision: Blame This File**). Binary files are
   not blamed.
 - Repositories using SHA-256 object names are not supported yet.
-- Works with files on disk. Remote, virtual and web workspaces (such as vscode.dev) are not supported yet.
+- Works with files on disk, including over Remote-SSH, where it runs on the remote machine. Dev Containers
+  and WSL work the same way but haven't been tested yet. Virtual and web workspaces (such as vscode.dev)
+  are not supported.
 
 ## Roadmap
 
