@@ -4,8 +4,9 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { runTests } from '@vscode/test-electron';
+import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
 import * as esbuild from 'esbuild';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -32,9 +33,22 @@ cpSync(path.join(ROOT, 'test/fixtures/repos/small'), workspace, { recursive: tru
 // Set when this script itself runs inside VS Code's terminal; it would make Electron start as plain Node.
 delete process.env.ELECTRON_RUN_AS_NODE;
 
+// test-electron's own retries are back to back, so one CDN blip fails all of them; space ours out.
+async function downloadVSCode(version) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await downloadAndUnzipVSCode(version);
+    } catch (e) {
+      if (attempt === 4) throw e;
+      console.error(`VS Code download failed (attempt ${attempt} of 4), retrying in ${attempt * 10} s`);
+      await sleep(attempt * 10_000);
+    }
+  }
+}
+
 try {
   await runTests({
-    version: process.env.VSCODE_VERSION ?? 'stable',
+    vscodeExecutablePath: await downloadVSCode(process.env.VSCODE_VERSION ?? 'stable'),
     extensionDevelopmentPath: ROOT,
     extensionTestsPath: path.join(ROOT, 'out/integration/index.cjs'),
     launchArgs: [workspace, '--disable-extensions', '--disable-workspace-trust', '--user-data-dir', path.join(scratch, 'user-data')],
@@ -46,3 +60,5 @@ try {
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
+// Exit explicitly: an aborted download leaves a socket open, and waiting on it hung CI for 6 hours.
+process.exit(process.exitCode ?? 0);

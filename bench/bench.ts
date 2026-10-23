@@ -88,16 +88,25 @@ async function main() {
       await pool.request('index.sync', { root, storageDir: storage('warm') }, { affinity: root });
     }, 100);
 
-    await measure('index: incremental, +1 commit then branch delete', 3, async () => {
+    // Only the two syncs are timed: the git plumbing that sets up each step spawns processes, and
+    // process start-up on Windows runners is slow and erratic enough to fail the budget on its own.
+    const incremental: number[] = [];
+    for (let i = 0; i < 5; i++) {
       const c = git('commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'bench');
       git('update-ref', 'refs/heads/bench-tmp', c);
+      let t = performance.now();
       const a = await pool.request('index.sync', { root, storageDir: storage('warm') }, { affinity: root });
+      let ms = performance.now() - t;
       git('update-ref', '-d', 'refs/heads/bench-tmp');
+      t = performance.now();
       const b = await pool.request('index.sync', { root, storageDir: storage('warm') }, { affinity: root });
+      ms += performance.now() - t;
       if (a.mode !== 'incremental' || b.mode !== 'incremental' || b.commitCount !== 100_000) {
         throw new Error(`unexpected ${a.mode}/${b.mode}/${b.commitCount}`);
       }
-    }, 600);
+      incremental.push(ms);
+    }
+    record('index: incremental, +1 commit then branch delete', incremental, 600);
 
     pool.dispose();
 
