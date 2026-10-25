@@ -69,6 +69,8 @@ export interface Harness {
   diffsOpened: GraphHostMethods['graph.openDiff']['params'][];
   /** Branch drops the webview sent. */
   drops: GraphHostMethods['graph.dropBranch']['params'][];
+  /** Roots the webview asked to fetch more history for. */
+  fetches: string[];
   /** Text the webview asked the host to copy. */
   clipboard: string[];
   /** Repo-relative paths the fake host reports as open in editors (mutable). */
@@ -110,6 +112,7 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
   const clipboard: string[] = [];
   const diffsOpened: Harness['diffsOpened'] = [];
   const drops: Harness['drops'] = [];
+  const fetches: string[] = [];
   const openFiles: string[] = [];
   registerGraphMethods(host, {
     pool,
@@ -119,6 +122,7 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     writeClipboard: async (text) => void clipboard.push(text),
     openDiff: async (a) => void diffsOpened.push(a),
     dropBranch: async (a) => void drops.push(a),
+    fetchMore: async (r) => void fetches.push(r),
   });
 
   await page.exposeFunction('__gvxToHost', (m: unknown) => {
@@ -193,6 +197,7 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     clipboard,
     diffsOpened,
     drops,
+    fetches,
     openFiles,
     requests,
     cspViolations,

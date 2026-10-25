@@ -84,8 +84,28 @@
     (e) => (error = (e as Error).message),
   );
 
+  /** A shallow clone gets one more row after the last commit: "history truncated", with Fetch more. */
+  const boundaryRow = $derived(refs?.shallow && total > 0 ? total : -1);
+  const rowCount = $derived(total + (boundaryRow >= 0 ? 1 : 0));
+  let fetching = $state(false);
+  async function fetchMore() {
+    if (!graph.root || fetching) return;
+    fetching = true;
+    try {
+      await rpc.request('graph.fetchMore', { root: graph.root });
+    } finally {
+      fetching = false;
+    }
+  }
+  const worktreesByRow = $derived.by(() => {
+    const m = new Map<number, NonNullable<typeof refs>['worktrees']>();
+    for (const w of refs?.worktrees ?? []) if (w.row >= 0) m.set(w.row, [...(m.get(w.row) ?? []), w]);
+    return m;
+  });
+  const baseName = (p: string) => p.replace(/\/+$/, '').split('/').pop() ?? p;
+
   const first = $derived(Math.max(0, Math.floor(scrollTop / ROW_HEIGHT)));
-  const last = $derived(Math.min(total - 1, Math.floor((scrollTop + viewHeight) / ROW_HEIGHT)));
+  const last = $derived(Math.min(rowCount - 1, Math.floor((scrollTop + viewHeight) / ROW_HEIGHT)));
   const visible = $derived(Array.from({ length: Math.max(0, last - first + 1) }, (_, i) => first + i));
   const graphW = $derived(graphWidth(lanes));
 
@@ -329,7 +349,7 @@
       dpr: devicePixelRatio || 1,
       scrollTop,
       first,
-      rows: visible.map((r) => cache.row(r)?.graph ?? null),
+      rows: visible.map((r) => (r < total ? (cache.row(r)?.graph ?? null) : null)),
       theme: { lanes: theme.lanes, surface: theme.surface, contrastBorder: theme.contrastBorder, head: theme.head },
       headRow: refs?.head.row ?? -1,
       pulseRow: syncRow,
@@ -450,6 +470,16 @@
         {ondrop}
         {ondragend} style:transform="translateY({-(scrollTop % ROW_HEIGHT)}px)">
         {#each visible as r (r)}
+          {#if r === boundaryRow}
+            <div class="row boundary" role="option" tabindex="-1" id="row-{r}" aria-selected="false" style:transform="translateY({(r - first) * ROW_HEIGHT}px)">
+              <span class="lanes" style:width="{graphW}px"></span>
+              <i class="codicon codicon-fold-down"></i>
+              <span class="subject">History truncated (shallow clone)</span>
+              <button class="fetch-more" disabled={fetching} onclick={(e) => { e.stopPropagation(); void fetchMore(); }}>
+                {fetching ? 'Fetching…' : 'Fetch more'}
+              </button>
+            </div>
+          {:else}
           {@const row = rowAt(r, version)}
           <div
             class="row"
@@ -479,16 +509,21 @@
                   style:--chip-color={theme?.lanes[row.graph.lane % LANE_COLORS]}
                 ><i class="codicon codicon-{ref.kind === 'tag' ? 'tag' : ref.kind === 'remote' ? 'cloud' : 'git-branch'}"></i>{ref.name}</span>
               {/each}
+              {#each worktreesByRow.get(r) ?? [] as wt (wt.path)}
+                <span class="ref worktree" title="Worktree {wt.path}: HEAD {wt.branch ? `on ${wt.branch}` : 'detached'} here"
+                  ><i class="codicon codicon-folder"></i>{baseName(wt.path)}{wt.branch ? '' : ' (detached)'}</span>
+              {/each}
               <span class="subject">{row.commit.subject}</span>
               <span class="author">{who(row.commit.author, row.commit.authorMail)}</span>
               <span class="date">{relativeTime(row.commit.time, now)}</span>
               <span class="sha">{shortSha(row.commit.sha)}</span>
             {/if}
           </div>
+          {/if}
         {/each}
       </div>
     </div>
-    <div style:height="{Math.max(0, total * ROW_HEIGHT - viewHeight)}px"></div>
+    <div style:height="{Math.max(0, rowCount * ROW_HEIGHT - viewHeight)}px"></div>
   </div>
  </div>
   {#if selected && graph.root}
@@ -635,6 +670,27 @@
   }
   .row:hover {
     background: var(--gvx-hover);
+  }
+  .row.boundary {
+    color: var(--gvx-text-muted);
+    font-style: italic;
+  }
+  .fetch-more {
+    font: inherit;
+    font-style: normal;
+    color: var(--vscode-button-foreground, var(--gvx-text));
+    background: var(--vscode-button-background, var(--gvx-selection));
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: var(--gvx-radius);
+    padding: 0 8px;
+    cursor: pointer;
+  }
+  .fetch-more:hover:not(:disabled) {
+    background: var(--vscode-button-hoverBackground, var(--gvx-selection));
+  }
+  .fetch-more:focus-visible {
+    outline: 1px solid var(--gvx-focus);
+    outline-offset: 1px;
   }
   .row.match .subject {
     text-decoration: underline;

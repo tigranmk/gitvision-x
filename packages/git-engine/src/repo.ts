@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
-import type { RefInfo, RepoInfo, RepoRefs } from '@gvx/protocol';
+import type { RefInfo, RepoInfo, RepoRefs, WorktreeHead } from '@gvx/protocol';
 import type { Git } from './git';
 
 export async function resolveRepo(git: Git, dir: string, signal?: AbortSignal): Promise<RepoInfo | null> {
@@ -79,10 +79,13 @@ async function packedRef(commonDir: string, ref: string): Promise<string | null>
 
 /** Branch, remote and tag names (tags peeled to their commit) and HEAD, for graph labels and the details pane. */
 export async function readRefs(git: Git, root: string, signal?: AbortSignal): Promise<RepoRefs> {
-  const [list, head, branch] = await Promise.all([
+  const [list, head, branch, worktrees, shallow] = await Promise.all([
     git.text(['for-each-ref', '--format=%(refname)%00%(objectname)%00%(*objectname)%00%(symref)', 'refs/heads', 'refs/remotes', 'refs/tags'], { cwd: root, signal }),
     git.tryText(['rev-parse', '--verify', '-q', 'HEAD^{commit}'], { cwd: root, signal }),
     git.tryText(['symbolic-ref', '-q', '--short', 'HEAD'], { cwd: root, signal }),
+    // No -z: it needs git 2.36, and we support 2.35.
+    git.tryText(['worktree', 'list', '--porcelain'], { cwd: root, signal }),
+    git.tryText(['rev-parse', '--is-shallow-repository'], { cwd: root, signal }),
   ]);
   const refs: RefInfo[] = [];
   for (const line of list.split('\n')) {
@@ -93,5 +96,35 @@ export async function readRefs(git: Git, root: string, signal?: AbortSignal): Pr
     else if (ref.startsWith('refs/remotes/')) refs.push({ name: ref.slice(13), kind: 'remote', sha });
     else if (ref.startsWith('refs/tags/')) refs.push({ name: ref.slice(10), kind: 'tag', sha });
   }
-  return { head: { sha: head?.trim() || null, branch: branch?.trim() || null }, refs };
+  return {
+    head: { sha: head?.trim() || null, branch: branch?.trim() || null },
+    refs,
+    worktrees: parseWorktrees(worktrees ?? '', root),
+    shallow: shallow?.trim() === 'true',
+  };
 }
+
+/** `git worktree list --porcelain`: one attribute per line, an empty line between worktrees. */
+export function parseWorktrees(out: string, root: string): WorktreeHead[] {
+  const result: WorktreeHead[] = [];
+  let cur: { path?: string; sha?: string; branch: string | null; bare: boolean } = { branch: null, bare: false };
+  const flush = () => {
+    if (cur.path && cur.sha && !cur.bare) {
+      const p = cur.path.replace(/\\/g, '/');
+      result.push({ path: p, sha: cur.sha, branch: cur.branch, current: samePath(p, root) });
+    }
+    cur = { branch: null, bare: false };
+  };
+  for (const line of out.split(/\r?\n/)) {
+    if (line === '') flush();
+    else if (line.startsWith('worktree ')) cur.path = line.slice(9);
+    else if (line.startsWith('HEAD ')) cur.sha = line.slice(5);
+    else if (line.startsWith('branch ')) cur.branch = line.slice(7).replace(/^refs\/heads\//, '');
+    else if (line === 'bare') cur.bare = true;
+  }
+  flush();
+  return result;
+}
+
+const samePath = (a: string, b: string) =>
+  process.platform === 'win32' || process.platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b;

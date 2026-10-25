@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { makeRepo, type TestRepo } from '../../../test/unit/helpers/gitRepo';
+import { execFileSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
+import { makeRepo, tempDir, type TestRepo } from '../../../test/unit/helpers/gitRepo';
 import { commitDetails, parseRawNumstat } from './commitDetails';
 import { Git } from './git';
+import { pathToFileURL } from 'node:url';
 import { readRefs } from './repo';
+import { repoWrite } from './repoWrite';
 
 const git = new Git('git');
 let repo: TestRepo;
@@ -84,5 +88,45 @@ describe('readRefs', () => {
 
     repo.git('checkout', '-q', '--detach', c1);
     expect((await readRefs(git, repo.dir)).head).toEqual({ sha: c1, branch: null });
+  });
+});
+
+describe('readRefs: worktrees and shallow clones', () => {
+  it('lists every worktree HEAD (branch or detached) and marks the current one', async () => {
+    repo = makeRepo();
+    const a = repo.commit('a');
+    repo.commit('b');
+    const wtBranch = `${repo.dir}-wt-feature`;
+    const wtDetached = `${repo.dir}-wt-detached`;
+    repo.git('worktree', 'add', '-q', '-b', 'feature', wtBranch);
+    repo.git('worktree', 'add', '-q', '--detach', wtDetached, a);
+    try {
+      const r = await readRefs(git, repo.dir);
+      expect(r.shallow).toBe(false);
+      const byName = Object.fromEntries(r.worktrees.map((w) => [w.path.split('/').pop(), w]));
+      expect(r.worktrees).toHaveLength(3);
+      expect(byName[repo.dir.split('/').pop()!.split('\\').pop()!]).toMatchObject({ branch: 'main', current: true });
+      expect(byName[wtBranch.split(/[\\/]/).pop()!]).toMatchObject({ branch: 'feature', current: false });
+      expect(byName[wtDetached.split(/[\\/]/).pop()!]).toMatchObject({ branch: null, sha: a, current: false });
+    } finally {
+      repo.git('worktree', 'remove', '--force', wtBranch);
+      repo.git('worktree', 'remove', '--force', wtDetached);
+    }
+  });
+
+  it('flags a shallow clone, and deepen fetches more history', async () => {
+    repo = makeRepo();
+    for (let i = 0; i < 5; i++) repo.commit(`c${i}`);
+    const dest = tempDir();
+    try {
+      repo.git('clone', '-q', '--depth=1', pathToFileURL(repo.dir).href, dest);
+      expect((await readRefs(git, dest)).shallow).toBe(true);
+      const count = () => execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: dest, encoding: 'utf8' }).trim();
+      expect(count()).toBe('1');
+      await repoWrite(git, dest, { kind: 'deepen', by: 2 });
+      expect(count()).toBe('3');
+    } finally {
+      rmSync(dest, { recursive: true, force: true });
+    }
   });
 });

@@ -37,3 +37,8 @@ body.vscode-high-contrast-light .ref {
   outline: 2px solid var(--gvx-focus);
   outline-offset: 1px;
 }
+
+.ref.worktree {
+  border-style: dashed;
+  color: var(--gvx-text-muted);
+}

@@ -17,6 +17,7 @@ export interface GraphMethodDeps {
   writeClipboard(text: string): PromiseLike<void>;
   openDiff(args: GraphHostMethods['graph.openDiff']['params']): PromiseLike<void>;
   dropBranch(args: GraphHostMethods['graph.dropBranch']['params']): PromiseLike<void>;
+  fetchMore(root: string): PromiseLike<void>;
 }
 
 export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
@@ -35,13 +36,16 @@ export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
     d.pool.request('graph.search', { root: current(root), view, query }, { affinity: root, signal }),
   );
   rpc.handle('graph.refs', async ({ root, view }, { signal }) => {
-    const { head, refs } = await d.pool.request('repo.refs', { root: current(root) }, { affinity: root, signal });
-    const shas = [...new Set([...refs.map((r) => r.sha), ...(head.sha ? [head.sha] : [])])];
+    const { head, refs, worktrees, shallow } = await d.pool.request('repo.refs', { root: current(root) }, { affinity: root, signal });
+    const others = worktrees.filter((w) => !w.current);
+    const shas = [...new Set([...refs.map((r) => r.sha), ...others.map((w) => w.sha), ...(head.sha ? [head.sha] : [])])];
     const rows = await d.pool.request('graph.rows', { root, view, shas }, { affinity: root, signal });
     const rowOf = new Map(shas.map((sha, i) => [sha, rows[i] ?? -1]));
     return {
       head: { ...head, row: head.sha ? (rowOf.get(head.sha) ?? -1) : -1 },
       refs: refs.map((r) => ({ ...r, row: rowOf.get(r.sha) ?? -1 })),
+      worktrees: others.map((w) => ({ ...w, row: rowOf.get(w.sha) ?? -1 })),
+      shallow,
     };
   });
   rpc.handle('graph.details', async ({ root, sha }, { signal }) => {
@@ -60,6 +64,10 @@ export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
   rpc.handle('graph.dropBranch', async (args) => {
     current(args.root);
     await d.dropBranch(args);
+    return null;
+  });
+  rpc.handle('graph.fetchMore', async ({ root }) => {
+    await d.fetchMore(current(root));
     return null;
   });
   rpc.handle('clipboard.write', async ({ text }) => {

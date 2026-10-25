@@ -51,6 +51,8 @@ export function writeArgs(op: RepoWriteOp): string[] {
       return ['merge', '--no-edit', '--end-of-options', op.branch];
     case 'rebase':
       return ['rebase', '--end-of-options', op.upstream, op.branch];
+    case 'deepen':
+      return ['fetch', `--deepen=${Math.max(1, Math.min(1_000_000, Math.floor(op.by)))}`];
   }
 }
 

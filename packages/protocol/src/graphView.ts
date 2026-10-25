@@ -1,5 +1,5 @@
 /** Host ↔ graph webview channel (an RpcEndpoint over the webview's postMessage). */
-import type { CommitDetails, CommitFile, GraphPage, MicroDiff, RefInfo } from './engine';
+import type { CommitDetails, CommitFile, GraphPage, MicroDiff, RefInfo, WorktreeHead } from './engine';
 import type { GraphView } from './graph';
 import type { MethodSpec } from './rpc';
 
@@ -38,6 +38,9 @@ export interface GraphRef extends RefInfo {
 export interface GraphRefs {
   head: { sha: string | null; branch: string | null; row: number };
   refs: GraphRef[];
+  /** Other worktrees' HEADs (the current one is `head`), each with its row. */
+  worktrees: (WorktreeHead & { row: number })[];
+  shallow: boolean;
 }
 
 export interface GraphFile extends CommitFile {
@@ -58,6 +61,8 @@ export type GraphHostMethods = {
   /** Rows of commits (-1 when not in the graph), e.g. to jump to a parent. */
   'graph.rows': MethodSpec<{ root: string; view?: GraphView; shas: string[] }, number[]>;
   'clipboard.write': MethodSpec<{ text: string }, null>;
+  /** Shallow clone: fetch more history (the host confirms nothing: fetching adds, never removes). */
+  'graph.fetchMore': MethodSpec<{ root: string }, null>;
   /** A branch chip dropped on another: the host offers merge or rebase and confirms before running it. */
   'graph.dropBranch': MethodSpec<
     { root: string; source: { name: string; kind: 'branch' | 'remote' }; target: { name: string; kind: 'branch' | 'remote' } },

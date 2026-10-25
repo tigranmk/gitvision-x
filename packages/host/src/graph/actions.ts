@@ -29,6 +29,8 @@ export interface BranchDrop {
 }
 
 const short = (sha: string) => sha.slice(0, 7);
+/** Commits per "Fetch more" in a shallow clone. */
+const FETCH_MORE = 100;
 const quote = (s: string) => `"${s.length > 60 ? `${s.slice(0, 59)}…` : s}"`;
 
 export class GraphActions implements vscode.Disposable {
@@ -169,6 +171,13 @@ export class GraphActions implements vscode.Disposable {
     }
   }
 
+  /** Shallow clone: fetch FETCH_MORE more commits of history. Adds history, never removes any: no confirm. */
+  async fetchMore(root: string): Promise<void> {
+    await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'GitVision: fetching more history' }, () =>
+      this.write(root, { kind: 'deepen', by: FETCH_MORE }),
+    );
+  }
+
   private refs(root: string): Promise<RepoRefs> {
     return this.pool.request('repo.refs', { root }, { affinity: root });
   }
@@ -184,7 +193,7 @@ export class GraphActions implements vscode.Disposable {
       this.lastWrite = { op, error: (e as Error).message, code };
       if (code === 'conflict') {
         const open = 'Open Source Control';
-        const what = op.kind === 'cherryPick' ? 'Cherry-pick' : op.kind === 'revert' ? 'Revert' : op.kind === 'rebase' ? 'Rebase' : 'Merge';
+        const what = op.kind === 'deepen' ? 'Fetch' : op.kind === 'cherryPick' ? 'Cherry-pick' : op.kind === 'revert' ? 'Revert' : op.kind === 'rebase' ? 'Rebase' : 'Merge';
         // Not awaited: the notification stays until clicked, and the command must not wait for it.
         void vscode.window.showWarningMessage(`${what} stopped with conflicts. Resolve them, then continue.`, open).then((c) => {
           if (c === open) void vscode.commands.executeCommand('workbench.view.scm');

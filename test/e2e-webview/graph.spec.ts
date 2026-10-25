@@ -279,3 +279,21 @@ test('rows carry the context-menu data; dragging a branch onto another asks the 
   await expect.poll(() => h!.drops.length).toBe(1);
   expect(h.drops[0]).toEqual({ root: h.root, source: { name: 'feature', kind: 'branch' }, target: { name: 'main', kind: 'branch' } });
 });
+
+test('labels other worktrees’ HEADs', async ({ page }) => {
+  h = await openGraph(page, 'worktrees');
+  const rows = page.locator('[role=option]');
+  await expect(rows.nth(0).locator('.ref.worktree')).toHaveText('worktrees-feature');
+  await expect(rows.nth(1).locator('.ref.worktree')).toHaveText('worktrees-detached (detached)');
+  await expect(rows.nth(1).locator('.ref.worktree')).toHaveAttribute('title', /worktrees-detached: HEAD detached here$/);
+});
+
+test('a shallow clone ends with a "history truncated" row that fetches more', async ({ page }) => {
+  h = await openGraph(page, 'shallow');
+  const boundary = page.locator('.row.boundary');
+  await expect(boundary).toContainText('History truncated (shallow clone)');
+  expect(await boundary.getAttribute('id')).toBe(`row-${h.state.total}`);
+  await boundary.getByRole('button', { name: 'Fetch more' }).click();
+  await expect.poll(() => h!.fetches).toEqual([h.root]);
+  await page.screenshot({ path: 'test-results/graph-shallow.png' });
+});

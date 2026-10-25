@@ -138,6 +138,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       writeClipboard: (text) => vscode.env.clipboard.writeText(text),
       openDiff: (a) => this.openDiff(a),
       dropBranch: (a) => this.actions.dropBranch(a),
+      fetchMore: (root) => this.actions.fetchMore(root),
     });
     this.clients.add(rpc);
     owner.onDidDispose(() => {

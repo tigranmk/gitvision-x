@@ -152,10 +152,24 @@ export interface RefInfo {
   sha: string;
 }
 
+export interface WorktreeHead {
+  /** Worktree directory (forward slashes). */
+  path: string;
+  sha: string;
+  /** Null when that worktree's HEAD is detached. */
+  branch: string | null;
+  /** The worktree these refs were read from. */
+  current: boolean;
+}
+
 export interface RepoRefs {
   /** HEAD's commit (null in an empty repo) and its branch (null when detached). */
   head: { sha: string | null; branch: string | null };
   refs: RefInfo[];
+  /** Every worktree's HEAD (linked worktrees share the refs, but each has its own HEAD). */
+  worktrees: WorktreeHead[];
+  /** A shallow clone: history stops at boundary commits. */
+  shallow: boolean;
 }
 
 export interface MicroDiffLine {
@@ -192,7 +206,9 @@ export type RepoWriteOp =
   /** Merges `branch` into the branch checked out. */
   | { kind: 'merge'; branch: string }
   /** Rebases `branch` onto `upstream` (checks `branch` out). */
-  | { kind: 'rebase'; upstream: string; branch: string };
+  | { kind: 'rebase'; upstream: string; branch: string }
+  /** Shallow clone: fetch `by` more commits of history (git fetch --deepen). */
+  | { kind: 'deepen'; by: number };
 
 /**
  * Errors from repo.write carry code 'conflict' (the operation stopped with conflicts to resolve),
