@@ -36,7 +36,7 @@ channel. Set the log level to Trace (Output panel → gear icon) to see per-file
 | `pnpm test:integration` | Runs the production build inside a downloaded VS Code. Set `VSCODE_VERSION=1.95.0` to test the minimum supported version. |
 | `pnpm fixtures` | Generates the test repositories in `test/fixtures/repos/` (git-ignored), including a 100,000-commit one. |
 | `node bench/run.mjs` | Performance benchmarks with budgets; fails if one is missed. |
-| `node bench/compare.mjs <results.json>` | Regression gate: each gated measure, divided by a calibration timed in the same run, against `bench/baseline/<platform>.json`; fails on > 10%. `--update` writes the baseline from a results file (use a CI run's artifact). |
+| `node bench/compare.mjs <results.json>` | Regression gate: each gated measure, divided by a calibration timed in the same run, against `bench/baseline/<platform>.json`; fails on > 10% (CI: Linux only; elsewhere it reports). `node bench/compare.mjs <run1.json> <run2.json>… --update` rebuilds a baseline from several CI artifacts. |
 | `pnpm package` | Builds a `.vsix` you can install with `code --install-extension`. |
 
 ## How the code is organised

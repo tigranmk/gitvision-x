@@ -1,0 +1,26 @@
+{
+  "from": [
+    "2026-10-25T21:23:58.710Z",
+    "2026-10-25T21:36:08.538Z"
+  ],
+  "machine": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M1 (Virtual)",
+    "cores": 3,
+    "node": "v22.23.3",
+    "git": "git version 2.56.0"
+  },
+  "runs": 2,
+  "normalised": {
+    "index: cold full load, 100k commits": 0.8843905607274303,
+    "index: open from disk (new session)": 0.27071005917159763,
+    "index: incremental, +1 commit then branch delete": 0.2615284693656636,
+    "graph: first page, cold (lays out all 100k rows)": 0.07248520710059171,
+    "graph wide: first page, cold (lays out all 100k rows)": 0.21844181459566073,
+    "graph: current-branch view, first page (builds the view)": 0.8362919132149901,
+    "graph: search 100k subjects/authors (text)": 0.16624203821656053,
+    "blame cold: recently changed line shown (streamed)": 0.028685862740853,
+    "blame cold: line unchanged since first commit (documented)": 1.3492097856678937
+  }
+}

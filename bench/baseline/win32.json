@@ -1,0 +1,26 @@
+{
+  "from": [
+    "2026-10-25T21:29:50.619Z",
+    "2026-10-25T21:36:00.056Z"
+  ],
+  "machine": {
+    "platform": "win32",
+    "arch": "x64",
+    "cpu": "AMD EPYC 9V74 80-Core Processor                ",
+    "cores": 4,
+    "node": "v22.23.4",
+    "git": "git version 2.56.0.windows.2"
+  },
+  "runs": 2,
+  "normalised": {
+    "index: cold full load, 100k commits": 1.0437669043521023,
+    "index: open from disk (new session)": 0.43840420868040336,
+    "index: incremental, +1 commit then branch delete": 0.45727136431784104,
+    "graph: first page, cold (lays out all 100k rows)": 0.0653222270933801,
+    "graph wide: first page, cold (lays out all 100k rows)": 0.1192459447610697,
+    "graph: current-branch view, first page (builds the view)": 0.6852257781674704,
+    "graph: search 100k subjects/authors (text)": 0.183691363437089,
+    "blame cold: recently changed line shown (streamed)": 0.08382172550088592,
+    "blame cold: line unchanged since first commit (documented)": 1.1600688468158349
+  }
+}

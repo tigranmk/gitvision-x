@@ -1,9 +1,11 @@
 // Performance regression gate (PLAN M5): compares this run's bench results with a committed baseline.
-//   node bench/compare.mjs <results.json> [--baseline bench/baseline/<platform>.json] [--update] [--report-only]
+//   node bench/compare.mjs <results.json> [--baseline bench/baseline/<platform>.json] [--report-only]
+//   node bench/compare.mjs <results.json>... --update     baseline = per-measure median over several CI runs
 // Each gated measure is divided by a calibration timed in the same run (git or CPU), so a slower or faster
 // CI machine cancels out; a measure fails when its normalised median is more than THRESHOLD above baseline.
 // Measures not listed here are covered by their absolute budgets in bench.ts only: process start-up (spiky on
-// shared runners) and measures of a few milliseconds, where 10% is below timer noise.
+// shared runners), measures of a few milliseconds (10% is below timer noise), and whole-file cold blame
+// (swung 28% between two CI runs of the same code even after normalising).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
 
@@ -19,7 +21,6 @@ export const GATED = {
   'graph: current-branch view, first page (builds the view)': 'cpu',
   'graph: search 100k subjects/authors (text)': 'cpu',
   'blame cold: recently changed line shown (streamed)': 'git',
-  'blame cold: recently rewritten files, whole file': 'git',
   'blame cold: line unchanged since first commit (documented)': 'git',
 };
 
@@ -47,20 +48,25 @@ export function regressions(current, baseline, threshold = THRESHOLD) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
   const args = process.argv.slice(2);
-  const file = args.find((a) => !a.startsWith('--'));
+  const bi = args.indexOf('--baseline');
+  const files = args.filter((a, i) => !a.startsWith('--') && i !== bi + 1);
+  const file = files[0];
   if (!file) {
     console.error('usage: node bench/compare.mjs <results.json> [--baseline file] [--update] [--report-only]');
     process.exit(2);
   }
   const results = JSON.parse(readFileSync(file, 'utf8'));
   const platform = results.machine?.platform ?? process.platform;
-  const bi = args.indexOf('--baseline');
   const baselineFile = bi >= 0 ? args[bi + 1] : path.join(path.dirname(new URL(import.meta.url).pathname), 'baseline', `${platform}.json`);
   const current = normalise(results);
   if (args.includes('--update')) {
+    // One run is noisy: take each measure's median over every results file given.
+    const runs = files.map((f) => normalise(JSON.parse(readFileSync(f, 'utf8'))));
+    const merged = Object.fromEntries(Object.keys(current).map((n) => [n, median(runs.map((r) => r[n]).filter((v) => v !== undefined))]));
     mkdirSync(path.dirname(baselineFile), { recursive: true });
-    writeFileSync(baselineFile, JSON.stringify({ from: results.date, machine: results.machine, normalised: current }, null, 2) + '\n');
-    console.log(`baseline written: ${baselineFile} (${Object.keys(current).length} measures)`);
+    const from = files.map((f) => JSON.parse(readFileSync(f, 'utf8')).date);
+    writeFileSync(baselineFile, JSON.stringify({ from, machine: results.machine, runs: files.length, normalised: merged }, null, 2) + '\n');
+    console.log(`baseline written: ${baselineFile} (${Object.keys(merged).length} measures, ${files.length} runs)`);
     process.exit(0);
   }
   if (!existsSync(baselineFile)) {

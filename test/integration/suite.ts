@@ -513,10 +513,12 @@ export function defineSuite(): void {
         return top >= 20 && top;
       });
       const samples: number[] = [];
+      const phases: Record<string, number[]> = {};
       await stepTo('gitvision.timeTravel.back', 0);
       for (let i = 1; i <= 40; i++) {
         const last = await stepTo('gitvision.timeTravel.back', i);
         samples.push(last.ms);
+        for (const [k, v] of Object.entries((last as unknown as { phases: Record<string, number> }).phases)) (phases[k] ??= []).push(v);
         // Each revision moves a marker between two of the 60 lines: two added, two removed; the reader stays put.
         assert.equal(last.added, 2);
         assert.equal(last.removed, 2);
@@ -525,6 +527,8 @@ export function defineSuite(): void {
       for (let i = 39; i >= 30; i--) samples.push((await stepTo('gitvision.timeTravel.forward', i)).ms);
       const sorted = [...samples].sort((a, b) => a - b);
       const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1]!;
+      const med = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)]!;
+      console.log(`      step phases (median): ${Object.entries(phases).map(([k, v]) => `${k} ${med(v).toFixed(1)} ms`).join(', ')}`);
       console.log(`      step: median ${sorted[Math.floor(sorted.length / 2)]!.toFixed(1)} ms, p95 ${p95.toFixed(1)} ms over ${samples.length} steps`);
       const slack = process.env.CI ? 2 : 1;
       assert.ok(p95 < 120 * slack, `step p95 ${p95.toFixed(1)} ms`);

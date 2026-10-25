@@ -50,7 +50,16 @@ export class TimeTravelController implements vscode.Disposable {
   private readonly shown = new Map<string, RevisionView>();
   private stepController: AbortController | null = null;
   /** For tests: the last step (command → editor shows the revision with its decorations). */
-  lastStep: { index: number; ms: number; mappedLine: number | null; added: number; removed: number; uri: string } | null = null;
+  lastStep: {
+    index: number;
+    ms: number;
+    mappedLine: number | null;
+    added: number;
+    removed: number;
+    uri: string;
+    /** Where the time went: worker view, opening the document, showing it, decorating. */
+    phases: { view: number; open: number; show: number; decorate: number };
+  } | null = null;
   /**
    * Top visible line per document, from our own reveals and the editor's scroll events. visibleRanges lags
    * a reveal by a frame or so, and stepping quickly (holding Alt+[) must not lose the reader's place.
@@ -135,10 +144,13 @@ export class TimeTravelController implements vscode.Disposable {
     }
     if (this.stepController !== controller || this.session !== s) return;
 
+    const tView = performance.now();
     const uri = revisionUri(s.root, rev);
     this.shown.set(uri.toString(), view);
     const doc = await vscode.workspace.openTextDocument(uri);
+    const tOpen = performance.now();
     const editor = await vscode.window.showTextDocument(doc, { viewColumn: s.column, preview: true, preserveFocus: false });
+    const tShow = performance.now();
     if (this.stepController !== controller) return;
     const line = Math.max(0, Math.min(view.mappedLine ?? 0, doc.lineCount - 1));
     editor.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.AtTop);
@@ -153,6 +165,7 @@ export class TimeTravelController implements vscode.Disposable {
       added: view.added.length,
       removed: view.removed.reduce((n, r) => n + r.lines.length, 0),
       uri: uri.toString(),
+      phases: { view: tView - started, open: tOpen - tView, show: tShow - tOpen, decorate: performance.now() - tShow },
     };
     this._onDidChange.fire(s);
     this.prefetch(s, index);

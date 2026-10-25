@@ -31,9 +31,11 @@ jobs:
       - run: pnpm test
       - name: Performance budgets (×2 slack on shared runners)
         run: pnpm bench --ci
-      - name: Performance regression gate (>10% vs baseline, normalised; report-only on macOS)
+      # Gated on Linux only: after normalising, Windows (±20%) and macOS (±56%) runners still swing more than
+      # 10% between runs of the same code, so there it reports without failing.
+      - name: Performance regression gate (>10% vs baseline, normalised; report-only off Linux)
         shell: bash
-        run: node bench/compare.mjs "bench/results/$(node -p process.platform).ci.json" ${{ runner.os == 'macOS' && '--report-only' || '' }}
+        run: node bench/compare.mjs "bench/results/$(node -p process.platform).ci.json" ${{ runner.os != 'Linux' && '--report-only' || '' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
