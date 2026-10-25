@@ -284,6 +284,76 @@ export class LogTable {
     return out;
   }
 
+  /**
+   * The rows marked in `keep`, in order, copied column by column. Parents are remapped to the new rows;
+   * `rewrite` replaces a row's parents (given as rows of this table) for history-simplified views. A parent
+   * that is not kept becomes external (a boundary).
+   */
+  subset(keep: Uint8Array, rewrite?: Map<number, number[]>): LogTable {
+    if (this.pending.size) throw new Error('subset() needs a finalized table');
+    const newRow = new Int32Array(this.count).fill(-1);
+    let kept = 0;
+    for (let r = 0; r < this.count; r++) if (keep[r]) newRow[r] = kept++;
+    const out = new LogTable();
+    out.count = kept;
+    out.shas = new Uint8Array(kept * SHA_BYTES);
+    out.times = new Uint32Array(kept);
+    out.authorIds = new Uint32Array(kept);
+    out.authors = this.authors;
+    out.authorIndex = this.authorIndex;
+    out.externals = [...this.externals];
+    out.parentStart = new Uint32Array(kept + 1);
+    out.subjectStart = new Uint32Array(kept + 1);
+    out.subjects = new Uint8Array(this.subjectLen);
+    const parents: number[] = [];
+    const external = new Map<number, number>(); // dropped base row → external ref
+    for (let r = 0; r < this.count; r++) {
+      const k = newRow[r]!;
+      if (k < 0) continue;
+      out.shas.set(this.shas.subarray(r * SHA_BYTES, (r + 1) * SHA_BYTES), k * SHA_BYTES);
+      out.times[k] = this.times[r]!;
+      out.authorIds[k] = this.authorIds[r]!;
+      const ps = rewrite?.get(r);
+      const n = ps ? ps.length : this.parentCount(r);
+      for (let i = 0; i < n; i++) {
+        const v = ps ? ps[i]! : this.parentRow(r, i);
+        if (v < 0) parents.push(v); // already external in this table
+        else if (newRow[v]! >= 0) parents.push(newRow[v]!);
+        else {
+          let ext = external.get(v);
+          if (ext === undefined) external.set(v, (ext = -(out.externals.push(this.sha(v)) - 1) - 1));
+          parents.push(ext);
+        }
+      }
+      out.parentStart[k + 1] = parents.length;
+      const subj = this.subjects.subarray(this.subjectStart[r], this.subjectStart[r + 1]);
+      out.subjects.set(subj, out.subjectLen);
+      out.subjectLen += subj.length;
+      out.subjectStart[k + 1] = out.subjectLen;
+    }
+    out.parents = Int32Array.from(parents);
+    out.parentLen = parents.length;
+    return out;
+  }
+
+  /** Rows reachable from `start` (a row) through parent links, marked 1. */
+  reachable(start: number): Uint8Array {
+    const seen = new Uint8Array(this.count);
+    const stack = [start];
+    seen[start] = 1;
+    while (stack.length) {
+      const r = stack.pop()!;
+      for (let i = this.parentStart[r]!; i < this.parentStart[r + 1]!; i++) {
+        const p = this.parents[i]!;
+        if (p >= 0 && !seen[p]) {
+          seen[p] = 1;
+          stack.push(p);
+        }
+      }
+    }
+    return seen;
+  }
+
   /** One buffer: header, JSON (authors, externals, caller meta), then the columns. */
   serialize(meta: unknown = null): Uint8Array {
     if (this.pending.size) throw new Error('serialize() needs a finalized table');

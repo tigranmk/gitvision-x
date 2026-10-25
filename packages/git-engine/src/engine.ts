@@ -1,16 +1,13 @@
 /** Registers the git engine's handlers on an RPC endpoint (runs inside a worker thread). */
-import { withTransfer, type EngineEvents, type EngineMethods, type EventMap, type RpcEndpoint, type NoMethods } from '@gvx/protocol';
+import { withTransfer, type GraphView, type EngineEvents, type EngineMethods, type EventMap, type RpcEndpoint, type NoMethods } from '@gvx/protocol';
 import { BlameService } from './blame';
 import { commitGraphStatus, writeCommitGraph } from './commitGraph';
 import { Git } from './git';
-import { GraphLayout } from './graphLayout';
+import { ViewStore, searchTable } from './graphViews';
 import { IndexStore } from './indexStore';
 import { commitDetails } from './commitDetails';
 import { fileMicroDiff } from './microDiff';
 import { readRefs, resolveRepo } from './repo';
-
-/** Tables up to this size are laid out whole on the first graph page. */
-const EAGER_LAYOUT_ROWS = 250_000;
 
 export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, EngineEvents, EventMap>): void {
   const trace = (msg: string) => rpc.emit('engine.trace', { msg });
@@ -38,18 +35,18 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
 
   rpc.handle('index.stats', ({ root }) => ready().index.stats(root));
 
-  // One layout per repo, rebuilt when a sync replaces the repo's table.
-  const layouts = new Map<string, GraphLayout>();
-  rpc.handle('graph.page', ({ root, start, count }) => {
+  // Layouts per (repo, view), rebuilt when a sync replaces the repo's table or HEAD moves (branch view).
+  let views: ViewStore | null = null;
+  const indexTable = (root: string) => {
     const table = ready().index.table(root);
     if (!table) throw Object.assign(new Error(`No commit index for ${root}`), { code: 'no-index' });
-    let layout = layouts.get(root);
-    if (layout?.table !== table) {
-      layouts.set(root, (layout = new GraphLayout(table)));
-      // Up to 250k rows, lay out everything now (~25 ms per 100k): the graph's width is then final
-      // from the first page, so text columns never shift while scrolling. Larger repos lay out lazily.
-      if (table.count <= EAGER_LAYOUT_ROWS) layout.layoutTo(table.count - 1);
-    }
+    return table;
+  };
+  const viewOf = (root: string, view: GraphView | undefined, signal: AbortSignal) =>
+    (views ??= new ViewStore(ready().git)).get(root, indexTable(root), view, signal);
+
+  rpc.handle('graph.page', async ({ root, view, start, count }, { signal }) => {
+    const { table, layout } = await viewOf(root, view, signal);
     const p = layout.page(start, count);
     const commits = [];
     for (let r = p.start; r < p.start + p.nodeLane.length; r++) {
@@ -60,9 +57,19 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
     return withTransfer(page, [p.nodeLane.buffer, p.flags.buffer, p.edgeStart.buffer, p.edges.buffer] as ArrayBuffer[]);
   });
 
-  rpc.handle('graph.rows', ({ root, shas }) => {
-    const table = ready().index.table(root);
-    if (!table) throw Object.assign(new Error(`No commit index for ${root}`), { code: 'no-index' });
+  rpc.handle('graph.search', async ({ root, view, query, limit = 10_000 }, { signal }) => {
+    const { table } = await viewOf(root, view, signal);
+    const path = /^path:\s*(.+)$/i.exec(query.trim())?.[1];
+    if (!path) return searchTable(table, query, limit);
+    // Commits touching the path, anywhere in history; glob characters switch to a glob pathspec.
+    const spec = /[*?[]/.test(path) ? `:(glob,icase)${path}` : `:(icase)${path}`;
+    const out = await ready().git.text(['log', '--all', '--format=%H', '--', spec], { cwd: root, signal });
+    const rows = out.split('\n').filter(Boolean).map((s) => table.rowOf(s) ?? -1).filter((r) => r >= 0).sort((a, b) => a - b);
+    return { rows: rows.slice(0, limit), capped: rows.length > limit };
+  });
+
+  rpc.handle('graph.rows', async ({ root, view, shas }, { signal }) => {
+    const { table } = await viewOf(root, view, signal);
     return shas.map((s) => table.rowOf(s) ?? -1);
   });
 

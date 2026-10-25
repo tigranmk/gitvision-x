@@ -85,3 +85,19 @@ describe('LogTable', () => {
     expect(performance.now() - start).toBeLessThan(1500);
   });
 });
+
+describe('LogTable.subset / reachable', () => {
+  it('keeps marked rows in order, remaps parents, and turns dropped parents into boundaries', () => {
+    const t = build(); // 5 ← 4,3; 4 ← 2; 3 ← 1; 2 ← 1; 1 ← (0, outside)
+    expect([...t.reachable(2)]).toEqual([0, 0, 1, 0, 1]); // 3 reaches 1
+    const s = t.subset(new Uint8Array([1, 1, 0, 1, 1])); // drop 3
+    expect(s.count).toBe(4);
+    expect(s.parentsOf(0)).toEqual([1, sha(3)]); // 5 → 4, and 3 is now outside
+    expect(s.parentsOf(2)).toEqual([3]); // 2 → 1
+    expect(s.parentsOf(3)).toEqual([sha(0)]); // still outside
+    expect(s.subject(0)).toBe('merge ✓');
+    // Rewritten parents (history simplification): 5's parent becomes 1 directly.
+    const r = t.subset(new Uint8Array([1, 0, 0, 0, 1]), new Map([[0, [4]]]));
+    expect(r.parentsOf(0)).toEqual([1]);
+  });
+});

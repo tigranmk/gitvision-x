@@ -1,5 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
 import { openGraph, pixelAt, timeFromDelivery, type Harness } from './harness';
+
+/** The toolbar above the rows: 28 px + a 1 px border. */
+const TOP = 29;
 
 let h: Harness | undefined;
 test.afterEach(async () => {
@@ -25,9 +29,9 @@ test('jumping to the middle of 100k commits loads that page and cancels nothing 
   const target = 50_000;
   await page.locator('.scroller').evaluate((el, y) => (el.scrollTop = y), target * 22);
   await expect(page.locator(`#row-${target} .subject`)).toHaveText(/\S/);
-  // Rows are absolutely placed inside the sticky viewport: the target row sits at the top.
+  // Rows are absolutely placed inside the sticky viewport: the target row sits at the top, under the toolbar.
   const box = await page.locator(`#row-${target}`).boundingBox();
-  expect(Math.round(box!.y)).toBe(0);
+  expect(Math.round(box!.y)).toBe(TOP);
   const pages = h.requests.filter((r) => r.method === 'graph.page').map((r) => (r.params as { start: number }).start);
   expect(pages).toContain(Math.floor(target / 200) * 200);
   await page.screenshot({ path: 'test-results/graph-middle.png' });
@@ -74,14 +78,14 @@ test('falls back to drawing on the main thread when blob workers are not allowed
   h = await openGraph(page, 'wide-100k', { csp: (c) => c.replace('; worker-src blob:', '') });
   await expect(page.locator('[role=option] .subject').first()).toHaveText(/\S/);
   await expect(page.locator('.graph')).toHaveAttribute('data-renderer', 'main');
-  await expect.poll(() => pixelAt(page, 12, 11)).toEqual([0x37, 0x94, 0xff]);
+  await expect.poll(() => pixelAt(page, 12, TOP + 11)).toEqual([0x37, 0x94, 0xff]);
 });
 
 test('re-reads theme colours when VS Code switches theme', async ({ page }) => {
   h = await openGraph(page, 'wide-100k');
   await expect(page.locator('[role=option] .subject').first()).toHaveText(/\S/);
-  // The first commit's node: lane 0, row 0 → centre at CSS (12, 11).
-  const nodePixel = () => pixelAt(page, 12, 11);
+  // The first commit's node: lane 0, row 0 → centre at CSS (12, TOP + 11).
+  const nodePixel = () => pixelAt(page, 12, TOP + 11);
   await expect.poll(nodePixel).toEqual([0x37, 0x94, 0xff]); // Dark Modern charts.blue
 
   await page.evaluate(() => {
@@ -95,36 +99,102 @@ test('editor → graph sync scrolls to the commit, pulses it and outlines the li
   h = await openGraph(page, 'wide-100k');
   await expect(page.locator('[role=option] .subject').first()).toHaveText(/\S/);
   const row = 42_000;
+  const shaAt = async (r: number) => (await h!.pool.request('graph.page', { root: h!.root, start: r, count: 1 }, { affinity: h!.root })).commits[0]!.sha;
+  const sha = await shaAt(row);
 
   // Stage 1: the host pushes the cursor line's commit. Measured in the page: message in → the row is on
-  // screen, highlighted and filled in (its page fetched from the worker).
+  // screen, highlighted and filled in (its row looked up and its page fetched from the worker).
   const elapsed = await timeFromDelivery(
     page,
     `document.querySelector('#row-${row}.synced .subject')?.textContent.length > 0`,
   );
-  h.host.emit('graph.sync', { sha: 'x'.repeat(40), row, seq: 1 });
+  h.host.emit('graph.sync', { sha, seq: 1 });
   const stage1 = await elapsed();
   console.log(`sync message → row visible, highlighted and filled: ${stage1.toFixed(1)} ms`);
   expect(stage1).toBeLessThan(100 * (process.env.CI ? 2 : 1));
-  // Centred in the viewport.
+  // Centred in the list (below the toolbar).
   const box = (await page.locator(`#row-${row}`).boundingBox())!;
-  expect(Math.abs(box.y + 11 - 300)).toBeLessThanOrEqual(22);
+  expect(Math.abs(box.y + 11 - (TOP + (600 - TOP) / 2))).toBeLessThanOrEqual(22);
 
   // Stage 2: lineage for a stale sync is ignored; the current one is outlined (a ring around the node).
-  h.host.emit('graph.lineage', { seq: 0, rows: [row + 1] });
-  h.host.emit('graph.lineage', { seq: 1, rows: [row, row + 3] });
+  h.host.emit('graph.lineage', { seq: 0, shas: [await shaAt(row + 1)] });
+  h.host.emit('graph.lineage', { seq: 1, shas: [sha, await shaAt(row + 3)] });
   await page.waitForTimeout(400); // let the pulse finish
   await page.screenshot({ path: 'test-results/graph-sync.png' });
 
-  // A sync to the same commit again (new seq) does not scroll away if it is already visible.
+  // Another commit already on screen: highlighted without scrolling.
   const before = await page.locator('.scroller').evaluate((el) => el.scrollTop);
-  h.host.emit('graph.sync', { sha: 'x'.repeat(40), row: row + 2, seq: 2 });
+  h.host.emit('graph.sync', { sha: await shaAt(row + 2), seq: 2 });
   await expect(page.locator(`#row-${row + 2}`)).toHaveClass(/synced/);
   expect(await page.locator('.scroller').evaluate((el) => el.scrollTop)).toBe(before);
 
   // Cursor on an uncommitted line: no synced row.
   h.host.emit('graph.sync', null);
   await expect(page.locator('.row.synced')).toHaveCount(0);
+});
+
+test('filters to the current branch or the active file, and keeps the choice', async ({ page }) => {
+  h = await openGraph(page, 'small');
+  const subjects = page.locator('[role=option] .subject');
+  await expect(subjects).toHaveCount(5);
+  const filter = page.getByLabel('Commits shown');
+
+  // Current branch (main) has every commit: the feature branch is merged. Check out feature instead.
+  await filter.selectOption('branch');
+  await expect(subjects).toHaveCount(5);
+  execFileSync('git', ['checkout', '-q', 'feature'], { cwd: h.root });
+  h.host.emit('graph.refresh', { root: h.root });
+  await expect(subjects).toHaveText(['feature work', 'tweak app', 'initial']);
+  execFileSync('git', ['checkout', '-q', 'main'], { cwd: h.root });
+
+  // Active file: only commits touching it, following the editor.
+  await filter.selectOption('file');
+  await expect(page.locator('.message')).toContainText('Open a file');
+  h.host.emit('graph.activeFile', { root: h.root, path: 'src/app.ts' });
+  await expect(subjects).toHaveText(['tweak app', 'initial']);
+  await expect(page.locator('.scope')).toHaveText('src/app.ts');
+  h.host.emit('graph.activeFile', { root: h.root, path: 'README.md' });
+  await expect(subjects).toHaveText(['main work', 'initial']);
+
+  // The choice survives a reload of the webview (vscode.setState).
+  expect(await page.evaluate(() => (window as unknown as { acquireVsCodeApi(): { getState(): unknown } }).acquireVsCodeApi().getState())).toEqual({ filter: 'file' });
+});
+
+test('/ searches message, author, SHA and path; Enter steps through matches; Escape closes', async ({ page }) => {
+  h = await openGraph(page, 'wide-100k');
+  await expect(page.locator('[role=option] .subject').first()).toHaveText(/\S/);
+  await page.locator('[role=listbox]').focus();
+  await page.keyboard.press('/');
+  const input = page.getByLabel(/Search commits by message/);
+  await expect(input).toBeFocused();
+
+  await input.fill('Merge feature-7');
+  await expect(page.locator('.search .count')).toHaveText(/^1 of \d+$/);
+  const firstSelected = await page.locator('[role=option][aria-selected=true] .subject').textContent();
+  expect(firstSelected).toBe('Merge feature-7');
+  await input.press('Enter');
+  await expect(page.locator('.search .count')).toHaveText(/^2 of /);
+  await expect(page.locator('[role=option][aria-selected=true] .subject')).toHaveText('Merge feature-7');
+  await input.press('Shift+Enter');
+  await expect(page.locator('.search .count')).toHaveText(/^1 of /);
+
+  // SHA prefix: exactly one commit.
+  const sha = (await h.pool.request('graph.page', { root: h.root, start: 777, count: 1 }, { affinity: h.root })).commits[0]!.sha;
+  await input.fill(sha.slice(0, 8));
+  await expect(page.locator('.search .count')).toHaveText('1 of 1');
+  await expect(page.locator('#row-777')).toHaveAttribute('aria-selected', 'true');
+
+  // Author and path (counting starts at the first match at or below the viewport, here row 777).
+  await input.fill('dev7@example.com');
+  await expect(page.locator('.search .count')).toHaveText(/^\d+ of \d{3,}$/);
+  await input.fill('path:src/f499.ts');
+  await expect(page.locator('.search .count')).toHaveText(/^\d+ of \d+$/);
+  await input.fill('no such thing anywhere');
+  await expect(page.locator('.search .count')).toHaveText('No results');
+
+  await input.press('Escape');
+  await expect(input).toHaveCount(0);
+  await expect(page.locator('[role=listbox]')).toBeFocused();
 });
 
 test('labels refs and HEAD; clicking a commit opens its details', async ({ page }) => {

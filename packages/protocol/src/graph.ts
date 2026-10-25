@@ -20,3 +20,6 @@ export const packEdge = (kind: number, from: number, to: number) => ((kind << 30
 export const edgeKind = (e: number) => e >>> 30;
 export const edgeFrom = (e: number) => (e >>> 15) & 0x7fff;
 export const edgeTo = (e: number) => e & 0x7fff;
+
+/** Which commits the graph shows. */
+export type GraphView = { kind: 'all' } | { kind: 'branch' } | { kind: 'file'; path: string };

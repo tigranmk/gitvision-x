@@ -1,4 +1,5 @@
 /** Methods the git engine (worker_threads) serves to the extension host. */
+import type { GraphView } from './graph';
 import type { MethodSpec } from './rpc';
 
 export interface RepoInfo {
@@ -193,9 +194,15 @@ export type EngineMethods = {
   'index.stats': MethodSpec<{ root: string }, IndexStats | null>;
   /** Whether each commit is in the repo's index (reachable from a tip); null if the index is not loaded. */
   /** Rows [start, start + count) of the repo's graph; errors with code 'no-index' before the first index.sync. */
-  'graph.page': MethodSpec<{ root: string; start: number; count: number }, GraphPage>;
+  'graph.page': MethodSpec<{ root: string; view?: GraphView; start: number; count: number }, GraphPage>;
+  /**
+   * Rows of the view matching a search, ascending (at most `limit`, default 10,000). Plain text matches
+   * the subject, author name or email (case-insensitive) or a SHA prefix; `path:<glob>` matches commits
+   * touching paths (git pathspec glob).
+   */
+  'graph.search': MethodSpec<{ root: string; view?: GraphView; query: string; limit?: number }, { rows: number[]; capped: boolean }>;
   /** Row of each commit in the repo's graph, -1 when it is not in the index. */
-  'graph.rows': MethodSpec<{ root: string; shas: string[] }, number[]>;
+  'graph.rows': MethodSpec<{ root: string; view?: GraphView; shas: string[] }, number[]>;
   'commit.details': MethodSpec<{ root: string; sha: string }, CommitDetails>;
   /** Side-by-side diff of one file of a commit against its first parent, at most `maxRows` rows (default 40). */
   'commit.fileDiff': MethodSpec<{ root: string; sha: string; path: string; oldPath?: string; maxRows?: number }, MicroDiff>;

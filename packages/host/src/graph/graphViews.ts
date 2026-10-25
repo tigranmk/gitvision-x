@@ -36,8 +36,8 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
   private lineage: { key: string; controller: AbortController } | null = null;
   private lineageTimer: ReturnType<typeof setTimeout> | undefined;
   /** For tests: the last stage-1 sync (cursor event → event pushed) and stage-2 lineage. */
-  lastSync: { sha: string | null; row: number; seq: number; ms: number } | null = null;
-  lastLineage: { seq: number; rows: number[]; ms: number } | null = null;
+  lastSync: { sha: string | null; seq: number; ms: number } | null = null;
+  lastLineage: { seq: number; shas: string[]; ms: number } | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -53,14 +53,17 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       vscode.commands.registerCommand('gitvision.graph.openBeside', () => this.openBeside()),
       this.selection.onDidChange(({ changed }) => {
         if (changed.includes('repo')) this.follow();
+        if ((changed.includes('file') || changed.includes('repo')) && this.shown) this.emit('graph.activeFile', { root: this.shown, path: this.activeFile() });
         // 'commit' is set when the ghost text renders: a fallback for lines the cache could not answer at once.
-        if (changed.includes('line') || changed.includes('file') || changed.includes('commit')) void this.syncToCursor();
+        if (changed.includes('line') || changed.includes('file') || changed.includes('commit')) this.syncToCursor();
       }),
       repos.onDidOpen(() => this.follow()),
       repos.onDidClose(() => this.follow()),
       repos.onDidSync(({ stats }) => {
         // Any sync that replaced the table (not 'unchanged') shifts rows: the webview drops its pages.
-        if (stats.root === this.shown && stats.mode !== 'unchanged') this.broadcast();
+        if (stats.root !== this.shown) return;
+        if (stats.mode !== 'unchanged') this.broadcast();
+        else this.emit('graph.refresh', { root: stats.root }); // a checkout can move HEAD between existing tips
       }),
       vscode.window.tabGroups.onDidChangeTabs(() => {
         if (this.shown) this.emit('graph.openFiles', { root: this.shown, paths: this.openFiles(this.shown) });
@@ -71,7 +74,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
 
   /** Blame for a file landed or streamed in: the cursor line may be answerable now. */
   blameLoaded(): void {
-    if (!this.sync) void this.syncToCursor();
+    if (!this.sync) this.syncToCursor();
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -103,6 +106,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       total: session?.lastStats?.commitCount ?? 0,
       userEmail: session?.info.userEmail ?? null,
       sync: this.sync,
+      activeFile: this.activeFile(),
     };
   }
 
@@ -168,14 +172,14 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     this.cancelLineage();
     const state = this.state();
     for (const c of this.clients) c.emit('graph.reset', state);
-    void this.syncToCursor();
+    this.syncToCursor();
   }
 
   /**
    * Stage 1 (D1): pulse the commit that last touched the cursor line, straight from the blame cache.
    * Stage 2 starts after the cursor rests: the line's full lineage, outlined when the worker has it.
    */
-  private async syncToCursor(): Promise<void> {
+  private syncToCursor(): void {
     const started = performance.now();
     const editor = vscode.window.activeTextEditor;
     const root = this.shown;
@@ -188,7 +192,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       this.syncKey = null;
       if (this.sync) {
         this.sync = null;
-        this.lastSync = { sha: null, row: -1, seq: this.syncSeq, ms: performance.now() - started };
+        this.lastSync = { sha: null, seq: this.syncSeq, ms: performance.now() - started };
         this.emit('graph.sync', null);
       }
       return;
@@ -199,10 +203,8 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     this.scheduleLineage(c.root, c.path, c.headLine, key);
     if (this.sync?.sha === c.sha) return; // same commit, another of its lines: no new pulse
 
-    const [row] = await this.pool.request('graph.rows', { root, shas: [c.sha] }, { affinity: root }).catch(() => [-1]);
-    if (this.shown !== root || this.syncKey !== key) return; // moved on meanwhile
-    this.sync = { sha: c.sha, row: row ?? -1, seq: ++this.syncSeq };
-    this.lastSync = { sha: c.sha, row: this.sync.row, seq: this.sync.seq, ms: performance.now() - started };
+    this.sync = { sha: c.sha, seq: ++this.syncSeq };
+    this.lastSync = { sha: c.sha, seq: this.sync.seq, ms: performance.now() - started };
     this.emit('graph.sync', this.sync);
   }
 
@@ -214,16 +216,15 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       const started = performance.now();
       void this.pool
         .request('blame.lineHistory', { root, path, line: headLine + 1, count: LINEAGE_MAX }, { affinity: root, signal: controller.signal })
-        .then((history) => this.pool.request('graph.rows', { root, shas: history.map((h) => h.sha) }, { affinity: root, signal: controller.signal }))
         .then(
-          (rows) => {
+          (history) => {
             if (this.lineage?.controller !== controller || !this.sync) return;
-            const found = rows.filter((r) => r >= 0);
-            this.lastLineage = { seq: this.sync.seq, rows: found, ms: performance.now() - started };
-            this.emit('graph.lineage', { seq: this.sync.seq, rows: found });
+            const shas = history.map((h) => h.sha);
+            this.lastLineage = { seq: this.sync.seq, shas, ms: performance.now() - started };
+            this.emit('graph.lineage', { seq: this.sync.seq, shas });
           },
           (e) => {
-            if (!isCancelled(e)) this.lastLineage = { seq: this.sync?.seq ?? -1, rows: [], ms: performance.now() - started };
+            if (!isCancelled(e)) this.lastLineage = { seq: this.sync?.seq ?? -1, shas: [], ms: performance.now() - started };
           },
         );
     }, IDLE_MS);
@@ -266,7 +267,12 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     return [...paths];
   }
 
-  private emit<E extends 'graph.sync' | 'graph.lineage' | 'graph.openFiles'>(event: E, data: GraphHostEvents[E]): void {
+  private activeFile(): string | null {
+    const sel = this.selection.get();
+    return sel.repo === this.shown ? sel.file : null;
+  }
+
+  private emit<E extends 'graph.sync' | 'graph.lineage' | 'graph.openFiles' | 'graph.refresh' | 'graph.activeFile'>(event: E, data: GraphHostEvents[E]): void {
     for (const c of this.clients) c.emit(event, data);
   }
 }

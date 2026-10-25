@@ -24,14 +24,19 @@ export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
     return root;
   };
   rpc.handle('graph.state', () => d.state());
-  rpc.handle('graph.page', ({ root, start, count }, { signal }) =>
-    d.pool.request('graph.page', { root: current(root), start, count }, { affinity: root, signal }),
+  rpc.handle('graph.page', ({ root, view, start, count }, { signal }) =>
+    d.pool.request('graph.page', { root: current(root), view, start, count }, { affinity: root, signal }),
   );
-  rpc.handle('graph.rows', ({ root, shas }, { signal }) => d.pool.request('graph.rows', { root: current(root), shas }, { affinity: root, signal }));
-  rpc.handle('graph.refs', async ({ root }, { signal }) => {
+  rpc.handle('graph.rows', ({ root, view, shas }, { signal }) =>
+    d.pool.request('graph.rows', { root: current(root), view, shas }, { affinity: root, signal }),
+  );
+  rpc.handle('graph.search', ({ root, view, query }, { signal }) =>
+    d.pool.request('graph.search', { root: current(root), view, query }, { affinity: root, signal }),
+  );
+  rpc.handle('graph.refs', async ({ root, view }, { signal }) => {
     const { head, refs } = await d.pool.request('repo.refs', { root: current(root) }, { affinity: root, signal });
     const shas = [...new Set([...refs.map((r) => r.sha), ...(head.sha ? [head.sha] : [])])];
-    const rows = await d.pool.request('graph.rows', { root, shas }, { affinity: root, signal });
+    const rows = await d.pool.request('graph.rows', { root, view, shas }, { affinity: root, signal });
     const rowOf = new Map(shas.map((sha, i) => [sha, rows[i] ?? -1]));
     return {
       head: { ...head, row: head.sha ? (rowOf.get(head.sha) ?? -1) : -1 },

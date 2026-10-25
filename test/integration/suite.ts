@@ -11,9 +11,9 @@ interface TestState {
   selection: { repo: string | null; file: string | null; line: number | null; commit: string | null };
   refsEvents: { root: string; mode: string }[];
   lastRender?: { uri: string; line: number; text: string; ms: number; warm: boolean };
-  graph?: { root: string | null; total: number; sync: { sha: string; row: number } | null };
-  graphSync?: { sha: string | null; row: number; seq: number; ms: number } | null;
-  graphLineage?: { seq: number; rows: number[]; ms: number } | null;
+  graph?: { root: string | null; total: number; sync: { sha: string; seq: number } | null };
+  graphSync?: { sha: string | null; seq: number; ms: number } | null;
+  graphLineage?: { seq: number; shas: string[]; ms: number } | null;
 }
 
 // A remote extension host doesn't get the runner's env, so fall back to the window's folder.
@@ -247,16 +247,14 @@ export function defineSuite(): void {
         const s = await state();
         return s.graphSync?.sha === head && s.graph?.sync?.sha === head && s;
       });
-      const expectRow = Number(git('rev-list', '--count', '--topo-order', '--all', `^${head}`).trim());
-      console.log(`      cursor → graph sync ${synced.graphSync!.ms.toFixed(1)} ms (row ${synced.graphSync!.row})`);
+      console.log(`      cursor → graph sync ${synced.graphSync!.ms.toFixed(1)} ms`);
       assert.ok(synced.graphSync!.ms < 100, `stage 1 took ${synced.graphSync!.ms.toFixed(1)} ms`);
-      assert.ok(synced.graphSync!.row >= 0 && synced.graphSync!.row <= expectRow);
       const lineage = await waitFor('lineage', async () => {
         const l = (await state()).graphLineage;
         return l?.seq === synced.graphSync!.seq && l;
       });
-      console.log(`      lineage: ${lineage.rows.length} commits in ${lineage.ms.toFixed(0)} ms`);
-      assert.ok(lineage.rows.includes(synced.graphSync!.row), `the synced commit is part of its line lineage (${lineage.rows})`);
+      console.log(`      lineage: ${lineage.shas.length} commits in ${lineage.ms.toFixed(0)} ms`);
+      assert.ok(lineage.shas.includes(head), `the synced commit is part of its line lineage (${lineage.shas})`);
 
       // Graph → editor: a modified file opens the diff editor; an added one opens its single revision.
       const tweak = git('log', '--format=%H', '--grep=^tweak app$').trim();

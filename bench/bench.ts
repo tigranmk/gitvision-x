@@ -140,6 +140,19 @@ async function main() {
       const pg = await scrollPool.request('graph.page', { root, start: (i * 4919) % 99_900, count: PAGE }, { affinity: root });
       if (pg.commits.length !== PAGE) throw new Error(`expected ${PAGE} rows, got ${pg.commits.length}`);
     }, 16);
+
+    // Filters and search (task 8): a view is built once per index/HEAD, then paged like the full graph.
+    await measure('graph: current-branch view, first page (builds the view)', 1, async () => {
+      await scrollPool.request('graph.page', { root, view: { kind: 'branch' }, start: 0, count: PAGE }, { affinity: root });
+    }, 500);
+    await measure('graph: file view src/hot.ts (5k commits), first page (git log + build)', 1, async () => {
+      const p = await scrollPool.request('graph.page', { root, view: { kind: 'file', path: 'src/hot.ts' }, start: 0, count: PAGE }, { affinity: root });
+      if (p.total < 4000) throw new Error(`expected ~5k commits touching src/hot.ts, got ${p.total}`);
+    });
+    await measure('graph: search 100k subjects/authors (text)', 5, async () => {
+      const r = await scrollPool.request('graph.search', { root, query: 'module 7' }, { affinity: root });
+      if (!r.rows.length) throw new Error('expected matches');
+    }, 100);
     scrollPool.dispose();
 
     // Same on wide-100k: 24 branches worked on in parallel, so many lanes cross every row.
