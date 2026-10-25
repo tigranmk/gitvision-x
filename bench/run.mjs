@@ -10,7 +10,7 @@ const step = (cmd, args) => {
   if (r.status !== 0) process.exit(r.status ?? 1);
 };
 step(process.execPath, ['scripts/build.mjs', '--production']);
-step(process.execPath, ['scripts/fixtures.mjs', '--only', 'big-100k,large-files']);
+step(process.execPath, ['scripts/fixtures.mjs', '--only', 'big-100k,large-files,wide-100k']);
 await esbuild.build({
   entryPoints: ['bench/bench.ts'],
   outfile: 'out/bench.cjs',

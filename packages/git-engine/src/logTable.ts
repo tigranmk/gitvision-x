@@ -134,6 +134,16 @@ export class LogTable {
     return out;
   }
 
+  /** Number of parents, without allocating (for hot loops such as the graph layout). */
+  parentCount(row: number): number {
+    return this.parentStart[row + 1]! - this.parentStart[row]!;
+  }
+
+  /** The k-th parent's row, or a negative number when that parent is outside the table. */
+  parentRow(row: number, k: number): number {
+    return this.parents[this.parentStart[row]! + k]!;
+  }
+
   author(row: number): { name: string; email: string } {
     this.check(row);
     const [name = '', email = ''] = this.authors[this.authorIds[row]!]!.split('\0');

@@ -87,6 +87,33 @@ export interface LineHistoryEntry {
   summary: string;
 }
 
+export interface GraphCommit {
+  sha: string;
+  subject: string;
+  author: string;
+  authorMail: string;
+  /** Unix seconds. */
+  time: number;
+}
+
+/**
+ * A slice of the graph for the viewport. Edges are packed as kind (2 bits: 0 pass, 1 in, 2 out),
+ * from lane (15), to lane (15); `flags` holds merge (1), root (2), shallow boundary (4), tip (8).
+ */
+export interface GraphPage {
+  start: number;
+  /** Rows in the whole graph. */
+  total: number;
+  /** Widest lane count laid out so far (grows as later pages are laid out). */
+  width: number;
+  commits: GraphCommit[];
+  nodeLane: Uint16Array;
+  flags: Uint8Array;
+  /** Edges of row `start + i` are `edges[edgeStart[i] .. edgeStart[i + 1])`. */
+  edgeStart: Uint32Array;
+  edges: Uint32Array;
+}
+
 /** Files above this many lines are blamed on demand only (spec F1). */
 export const AUTO_BLAME_MAX_LINES = 20_000;
 
@@ -102,6 +129,8 @@ export type EngineMethods = {
   'index.sync': MethodSpec<{ root: string; storageDir: string; full?: boolean }, IndexStats, SyncProgress>;
   'index.stats': MethodSpec<{ root: string }, IndexStats | null>;
   /** Whether each commit is in the repo's index (reachable from a tip); null if the index is not loaded. */
+  /** Rows [start, start + count) of the repo's graph; errors with code 'no-index' before the first index.sync. */
+  'graph.page': MethodSpec<{ root: string; start: number; count: number }, GraphPage>;
   'index.contains': MethodSpec<{ root: string; shas: string[] }, boolean[] | null>;
   'repo.commitGraph': MethodSpec<{ root: string }, CommitGraphStatus>;
   /** `git commit-graph write --reachable --changed-paths`. */

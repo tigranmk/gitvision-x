@@ -12,6 +12,7 @@ import { WorkerPool } from '@gvx/git-engine';
 const ROOT = path.resolve(__dirname, '..');
 const BIG = path.join(ROOT, 'test/fixtures/repos/big-100k');
 const LARGE = path.join(ROOT, 'test/fixtures/repos/large-files');
+const WIDE = path.join(ROOT, 'test/fixtures/repos/wide-100k');
 const WORKER = path.join(ROOT, 'dist/worker.js');
 const CI = process.argv.includes('--ci');
 const CI_SLACK = 2;
@@ -109,6 +110,61 @@ async function main() {
     record('index: incremental, +1 commit then branch delete', incremental, 600);
 
     pool.dispose();
+
+    // ---- Graph (M2): lane layout and viewport pages, index already loaded from disk ----
+    const PAGE = 100;
+    const graphSession = async () => {
+      const p = newPool();
+      await p.request('index.sync', { root, storageDir: storage('warm') }, { affinity: root });
+      return p;
+    };
+    const firstPage: number[] = [];
+    const fullLayout: number[] = [];
+    let width = 0;
+    for (let i = 0; i < 3; i++) {
+      const p = await graphSession();
+      let t = performance.now();
+      await p.request('graph.page', { root, start: 0, count: PAGE }, { affinity: root });
+      firstPage.push(performance.now() - t);
+      t = performance.now();
+      const last = await p.request('graph.page', { root, start: 100_000 - PAGE, count: PAGE }, { affinity: root });
+      fullLayout.push(performance.now() - t);
+      width = last.width;
+      p.dispose();
+    }
+    record('graph: first page, cold layout (100 rows)', firstPage, 100);
+    record(`graph: last page, lays out all 100k rows (${width} lanes) (documented)`, fullLayout);
+    const scrollPool = await graphSession();
+    await scrollPool.request('graph.page', { root, start: 100_000 - PAGE, count: PAGE }, { affinity: root });
+    await measure('graph: page of 100 laid-out rows (scrolling)', 20, async (i) => {
+      const pg = await scrollPool.request('graph.page', { root, start: (i * 4919) % 99_900, count: PAGE }, { affinity: root });
+      if (pg.commits.length !== PAGE) throw new Error(`expected ${PAGE} rows, got ${pg.commits.length}`);
+    }, 16);
+    scrollPool.dispose();
+
+    // Same on wide-100k: 24 branches worked on in parallel, so many lanes cross every row.
+    const wideRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: WIDE, encoding: 'utf8' }).trim();
+    const widePool = newPool();
+    await widePool.request('index.sync', { root: wideRoot, storageDir: storage('wide') }, { affinity: wideRoot });
+    await measure('graph wide: first page, cold layout (100 rows)', 1, async () => {
+      await widePool.request('graph.page', { root: wideRoot, start: 0, count: PAGE }, { affinity: wideRoot });
+    }, 100);
+    let wideWidth = 0;
+    let wideEdges = 0;
+    const wideFull: number[] = [];
+    {
+      const t = performance.now();
+      const last = await widePool.request('graph.page', { root: wideRoot, start: 100_000 - PAGE, count: PAGE }, { affinity: wideRoot });
+      wideFull.push(performance.now() - t);
+      wideWidth = last.width;
+    }
+    record(`graph wide: lay out all 100k rows (${wideWidth} lanes) (documented)`, wideFull);
+    await measure('graph wide: page of 100 laid-out rows (scrolling)', 20, async (i) => {
+      const pg = await widePool.request('graph.page', { root: wideRoot, start: (i * 4919) % 99_900, count: PAGE }, { affinity: wideRoot });
+      wideEdges = Math.max(wideEdges, pg.edges.length);
+    }, 16);
+    console.log(`  (wide: up to ${wideEdges} edges per 100-row page)`);
+    widePool.dispose();
 
     // ---- Blame (M1; D10 prefetch, D11 streaming + disk cache + Bloom filters) ----
     // Each cold sample uses a fresh pool whose blame worker is already warm (as after repo open),
@@ -233,7 +289,7 @@ async function main() {
 
   const failures = results.filter((r) => r.budgetMs && p95(r.samples) > r.budgetMs * (CI ? CI_SLACK : 1));
   const out = {
-    milestones: ['M0', 'M1'],
+    milestones: ['M0', 'M1', 'M2'],
     date: new Date().toISOString(),
     machine: { platform: process.platform, arch: process.arch, cpu: cpus()[0]?.model, cores: cpus().length, node: process.version, git: git('--version') },
     ci: CI,

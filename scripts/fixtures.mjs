@@ -115,6 +115,41 @@ const builders = {
     git(dir, ['branch', '-D', 'side']);
   },
 
+  /**
+   * ~100k commits on 24 feature branches worked on in parallel: each runs 5–300 commits, merges into
+   * main and starts again from main; all 24 are still open at the end. The graph's many-lane case.
+   */
+  'wide-100k'(dir) {
+    init(dir);
+    const fi = new FastImport();
+    const TOTAL = 100_000;
+    const BRANCHES = 24;
+    let seed = 42;
+    const rand = (k) => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) >>> 12) % k;
+    let n = 0;
+    const next = (ref, extra, message) => {
+      n++;
+      const files = { [`src/f${n % 500}.ts`]: `export const v = ${n};\n` };
+      return fi.commit(ref, { author: AUTHORS[n % AUTHORS.length], time: BASE_TIME + n * 60, message: message ?? `Change ${n}`, files, ...extra });
+    };
+    let main = next('refs/heads/main', {}, 'initial');
+    const tip = new Array(BRANCHES).fill(0);
+    const left = Array.from({ length: BRANCHES }, () => 5 + rand(296));
+    while (n < TOTAL) {
+      const b = rand(BRANCHES);
+      const ref = `refs/heads/feature-${b}`;
+      if (left[b] > 0 || n + 2 >= TOTAL) {
+        tip[b] = next(ref, { from: tip[b] || main });
+        left[b]--;
+      } else {
+        main = next('refs/heads/main', { from: main, merges: [tip[b]] }, `Merge feature-${b}`);
+        tip[b] = 0;
+        left[b] = 5 + rand(296);
+      }
+    }
+    fi.run(dir);
+  },
+
   /** An octopus merge of three branches, plus an unrelated orphan root merged in. */
   octopus(dir) {
     init(dir);

@@ -3,6 +3,7 @@ import { withTransfer, type EngineEvents, type EngineMethods, type EventMap, typ
 import { BlameService } from './blame';
 import { commitGraphStatus, writeCommitGraph } from './commitGraph';
 import { Git } from './git';
+import { GraphLayout } from './graphLayout';
 import { IndexStore } from './indexStore';
 import { resolveRepo } from './repo';
 
@@ -31,6 +32,23 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
   );
 
   rpc.handle('index.stats', ({ root }) => ready().index.stats(root));
+
+  // One layout per repo, rebuilt when a sync replaces the repo's table.
+  const layouts = new Map<string, GraphLayout>();
+  rpc.handle('graph.page', ({ root, start, count }) => {
+    const table = ready().index.table(root);
+    if (!table) throw Object.assign(new Error(`No commit index for ${root}`), { code: 'no-index' });
+    let layout = layouts.get(root);
+    if (layout?.table !== table) layouts.set(root, (layout = new GraphLayout(table)));
+    const p = layout.page(start, count);
+    const commits = [];
+    for (let r = p.start; r < p.start + p.nodeLane.length; r++) {
+      const { name, email } = table.author(r);
+      commits.push({ sha: table.sha(r), subject: table.subject(r), author: name, authorMail: email, time: table.time(r) });
+    }
+    const page = { ...p, total: table.count, commits };
+    return withTransfer(page, [p.nodeLane.buffer, p.flags.buffer, p.edgeStart.buffer, p.edges.buffer] as ArrayBuffer[]);
+  });
 
   rpc.handle('index.contains', ({ root, shas }) => ready().index.contains(root, shas));
 
