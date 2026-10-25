@@ -9,6 +9,7 @@ import type { WorkerPool } from '@gvx/git-engine';
 import type { RepoRegistry } from '../repoRegistry';
 import type { RepoSession } from '../repoSession';
 import { UNKNOWN_LINE, type BlameView } from './format';
+import { retryDelay } from './retry';
 
 export type BlameFailure = { failed: true; code: string; message: string };
 export type BlameOutcome = BlameResult | BlameFailure;
@@ -72,6 +73,10 @@ export interface FileBlame {
   blobSha?: string;
   /** Prefetch start → blame complete (ms). */
   coldMs?: number;
+  /** Consecutive failed attempts, this one included once it failed. */
+  failures: number;
+  /** performance.now() after which a failed outcome is blamed again; unset = never. */
+  retryAt?: number;
   map?: { version: number; value: Int32Array | null };
   pendingMap?: { version: number; promise: Promise<Int32Array | null> };
 }
@@ -94,13 +99,16 @@ export class BlameStore implements vscode.Disposable {
 
   /**
    * Existing state, or starts the blame now. `force` re-runs a file refused as too large;
-   * `refresh` replaces whatever is there (e.g. a stale disk-cache result).
+   * `refresh` replaces whatever is there (e.g. a stale disk-cache result). A failure that may be
+   * temporary (see retry.ts) is blamed again once its delay has passed.
    */
   ensure(doc: vscode.TextDocument, opts: { force?: boolean; refresh?: boolean } = {}): FileBlame | undefined {
     const key = doc.uri.toString();
     const existing = this.files.get(key);
-    const retryTooLarge = opts.force && isFailure(existing?.outcome) && existing.outcome.code === 'too-large';
-    if (existing && !retryTooLarge && !opts.refresh) return existing;
+    const failure = isFailure(existing?.outcome) ? existing.outcome : undefined;
+    const retryTooLarge = opts.force && failure?.code === 'too-large';
+    const retryDue = !!failure && performance.now() >= (existing?.retryAt ?? Infinity);
+    if (existing && !retryTooLarge && !retryDue && !opts.refresh) return existing;
     const file = this.repos.fileOf(doc.uri);
     if (!file) return undefined;
     existing?.controller.abort();
@@ -113,6 +121,7 @@ export class BlameStore implements vscode.Disposable {
       session: file.session,
       path: file.path,
       controller,
+      failures: failure ? (existing?.failures ?? 0) : 0,
       promise: this.pool
         .request(
           'blame.file',
@@ -122,6 +131,7 @@ export class BlameStore implements vscode.Disposable {
             signal: controller.signal,
             onPartial: (p) => {
               if (this.files.get(key) !== entry) return;
+              if (!entry.partial) this.log.trace(`blame ${file.path}: first entries after ${(performance.now() - started).toFixed(0)} ms`);
               (entry.partial ??= new PartialBlame(doc.lineCount + 16)).add(p);
               if (p.blobSha) entry.blobSha = p.blobSha;
               this._onDidProgress.fire(entry);
@@ -139,7 +149,12 @@ export class BlameStore implements vscode.Disposable {
       entry.partial = undefined;
       entry.coldMs = performance.now() - started;
       if (isFailure(outcome)) {
-        if (!QUIET_FAILURES.includes(outcome.code)) this.log.warn(`blame ${file.path}: ${outcome.message}`);
+        entry.failures++;
+        const delay = retryDelay(outcome.code, entry.failures);
+        if (delay !== null) entry.retryAt = performance.now() + delay;
+        if (!QUIET_FAILURES.includes(outcome.code)) {
+          this.log.warn(`blame ${file.path}: ${outcome.message}${delay === null ? '' : `; retrying after ${delay / 1000} s`}`);
+        }
       } else {
         entry.blobSha = outcome.blobSha ?? undefined;
         this.log.trace(`blame ${file.path}: ${entry.coldMs.toFixed(0)} ms (${outcome.source})`);
@@ -147,6 +162,7 @@ export class BlameStore implements vscode.Disposable {
       }
       this._onDidLoad.fire(entry);
     });
+    this.log.trace(`blame ${file.path}: requested${entry.failures ? ` (retry ${entry.failures})` : ''}`);
     this.files.set(key, entry);
     return entry;
   }

@@ -90,6 +90,12 @@ export interface LineHistoryEntry {
 /** Files above this many lines are blamed on demand only (spec F1). */
 export const AUTO_BLAME_MAX_LINES = 20_000;
 
+/** Pushed by a worker to the host. */
+export type EngineEvents = {
+  /** One diagnostic line (a git run, a blame step) for the host's log at trace level. */
+  'engine.trace': { msg: string };
+};
+
 export type EngineMethods = {
   'engine.init': MethodSpec<{ gitPath: string }, { gitVersion: string }>;
   'repo.resolve': MethodSpec<{ path: string }, RepoInfo | null>;

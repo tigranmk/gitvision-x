@@ -50,7 +50,10 @@ export class BlameService {
   private readonly configs = new Map<string, { fingerprint: string; files: Promise<string[]> }>();
   private readonly disks = new Map<string, BlameDiskCache>();
 
-  constructor(private readonly git: Git) {}
+  constructor(
+    private readonly git: Git,
+    private readonly trace?: (msg: string) => void,
+  ) {}
 
   async blame(root: string, file: string, opts: BlameOptions = {}): Promise<BlameResult> {
     const { signal, force = false, storageDir, noDiskCache = false, onProgress } = opts;
@@ -63,6 +66,7 @@ export class BlameService {
       // git itself refuses to blame in this state; say why instead of surfacing "fatal: could not open".
       throw codeError(`blame.ignoreRevsFile points to ${ignore.missing}, which does not exist`, 'ignore-revs-missing');
     }
+    this.trace?.(`blame ${file}: at ${rev.slice(0, 12)}, config read`);
     const disk = storageDir ? this.disk(storageDir) : null;
     const pathKey = commit ? `${root}\0${commit}\0${file}` : null;
     const memKey = (blob: string) => `${root}\0${file}\0${blob}\0${ignore.hash}`;

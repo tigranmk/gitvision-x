@@ -5,19 +5,33 @@
  */
 import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
-import { RpcEndpoint, RpcError, type EngineMethods, type RequestOptions, type Transport, type WireMessage, type NoMethods } from '@gvx/protocol';
+import {
+  RpcEndpoint,
+  RpcError,
+  type EngineEvents,
+  type EngineMethods,
+  type EventMap,
+  type RequestOptions,
+  type Transport,
+  type WireMessage,
+  type NoMethods,
+} from '@gvx/protocol';
 
 export interface PoolOptions {
   workerPath: string;
   gitPath: string;
   size?: number;
   log?: (msg: string) => void;
+  /** Diagnostic lines from the workers (every git run), prefixed with the worker's slot. */
+  trace?: (msg: string) => void;
   validate?: (msg: unknown) => void;
 }
 
+type Rpc = RpcEndpoint<NoMethods, EngineMethods, EventMap, EngineEvents>;
+
 interface Slot {
   worker: Worker | null;
-  rpc: RpcEndpoint<NoMethods, EngineMethods> | null;
+  rpc: Rpc | null;
   init: Promise<void> | null;
 }
 
@@ -73,7 +87,7 @@ export class WorkerPool {
     return best;
   }
 
-  private ensure(slot: Slot): RpcEndpoint<NoMethods, EngineMethods> {
+  private ensure(slot: Slot): Rpc {
     if (slot.rpc) return slot.rpc;
     const worker = new Worker(this.opts.workerPath);
     const transport: Transport = {
@@ -84,7 +98,9 @@ export class WorkerPool {
         return () => worker.off('message', h);
       },
     };
-    const rpc = new RpcEndpoint<NoMethods, EngineMethods>(transport, this.opts.validate);
+    const rpc: Rpc = new RpcEndpoint(transport, this.opts.validate);
+    const n = this.slots.indexOf(slot);
+    if (this.opts.trace) rpc.on('engine.trace', ({ msg }) => this.opts.trace?.(`worker ${n}: ${msg}`));
     const fail = (why: string) => {
       if (slot.worker !== worker) return;
       this.opts.log?.(`git worker stopped: ${why}`);

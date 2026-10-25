@@ -1,7 +1,7 @@
 // Runs the integration suite in a real VS Code (downloaded to .vscode-test/).
 //   VSCODE_VERSION=1.95.0 node test/integration/run.mjs   pin a version (default: stable)
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -46,16 +46,38 @@ async function downloadVSCode(version) {
   }
 }
 
+const userData = path.join(scratch, 'user-data');
+
+// A failed run's only record of what the extension did: its log (trace level, see --log below) and the
+// extension host's. Both live in the throwaway profile, so print them before it is deleted.
+function printLogs() {
+  const dir = path.join(userData, 'logs');
+  const files = existsSync(dir) ? readdirSync(dir, { recursive: true }).filter((f) => /(^|[\\/])(GitVision|exthost)\.log$/.test(f)) : [];
+  if (!files.length) console.error(`No extension logs found under ${dir}`);
+  for (const f of files.sort()) {
+    console.error(`\n===== ${f} =====\n${readFileSync(path.join(dir, f), 'utf8')}===== end of ${path.basename(f)} =====`);
+  }
+}
+
 try {
   await runTests({
     vscodeExecutablePath: await downloadVSCode(process.env.VSCODE_VERSION ?? 'stable'),
     extensionDevelopmentPath: ROOT,
     extensionTestsPath: path.join(ROOT, 'out/integration/index.cjs'),
-    launchArgs: [workspace, '--disable-extensions', '--disable-workspace-trust', '--user-data-dir', path.join(scratch, 'user-data')],
+    launchArgs: [
+      workspace,
+      '--disable-extensions',
+      '--disable-workspace-trust',
+      '--user-data-dir',
+      userData,
+      '--log',
+      'tigranmk.gitvision-x:trace',
+    ],
     extensionTestsEnv: { GVX_WORKSPACE: workspace, GVX_WORKSPACE_REAL: realpathSync.native(workspace) },
   });
 } catch (e) {
   console.error('Integration tests failed:', e);
+  printLogs();
   process.exitCode = 1;
 } finally {
   rmSync(scratch, { recursive: true, force: true });

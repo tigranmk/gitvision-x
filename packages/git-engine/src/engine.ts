@@ -1,12 +1,13 @@
 /** Registers the git engine's handlers on an RPC endpoint (runs inside a worker thread). */
-import { withTransfer, type EngineMethods, type RpcEndpoint, type NoMethods } from '@gvx/protocol';
+import { withTransfer, type EngineEvents, type EngineMethods, type EventMap, type RpcEndpoint, type NoMethods } from '@gvx/protocol';
 import { BlameService } from './blame';
 import { commitGraphStatus, writeCommitGraph } from './commitGraph';
 import { Git } from './git';
 import { IndexStore } from './indexStore';
 import { resolveRepo } from './repo';
 
-export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods>): void {
+export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, EngineEvents, EventMap>): void {
+  const trace = (msg: string) => rpc.emit('engine.trace', { msg });
   let git: Git | null = null;
   let index: IndexStore | null = null;
   let blame: BlameService | null = null;
@@ -16,9 +17,9 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods>): void
   };
 
   rpc.handle('engine.init', async ({ gitPath }, { signal }) => {
-    git = new Git(gitPath);
+    git = new Git(gitPath, trace);
     index = new IndexStore(git);
-    blame = new BlameService(git);
+    blame = new BlameService(git, trace);
     const version = await git.text(['--version'], { cwd: process.cwd(), signal });
     return { gitVersion: version.trim().replace(/^git version /, '') };
   });
@@ -41,15 +42,24 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods>): void
   rpc.handle('repo.writeCommitGraph', ({ root }, { signal }) => writeCommitGraph(ready().git, root, signal));
 
   rpc.handle('blame.file', async ({ root, path, rev, force, storageDir, noDiskCache }, { signal, partial }) => {
-    const r = await ready().blame.blame(root, path, {
-      rev,
-      signal,
-      force,
-      storageDir,
-      noDiskCache,
-      onProgress: (p) => partial(withTransfer(p, [p.ranges.buffer as ArrayBuffer])),
-    });
-    return withTransfer(r, [r.lineCommit.buffer, r.lineOrig.buffer, r.lineFile.buffer] as ArrayBuffer[]);
+    const started = performance.now();
+    const took = () => `${(performance.now() - started).toFixed(0)} ms`;
+    trace(`blame ${path}: start`);
+    try {
+      const r = await ready().blame.blame(root, path, {
+        rev,
+        signal,
+        force,
+        storageDir,
+        noDiskCache,
+        onProgress: (p) => partial(withTransfer(p, [p.ranges.buffer as ArrayBuffer])),
+      });
+      trace(`blame ${path}: done in ${took()} (${r.source})`);
+      return withTransfer(r, [r.lineCommit.buffer, r.lineOrig.buffer, r.lineFile.buffer] as ArrayBuffer[]);
+    } catch (e) {
+      trace(`blame ${path}: failed in ${took()}: ${(e as Error).message}`);
+      throw e;
+    }
   });
 
   rpc.handle('blame.warm', async ({ root }) => {

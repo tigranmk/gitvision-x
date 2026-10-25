@@ -39,25 +39,33 @@ const ENV = {
 };
 
 export class Git {
-  constructor(readonly path: string) {}
+  constructor(
+    readonly path: string,
+    /** Receives one line per git start and exit. */
+    private readonly trace?: (msg: string) => void,
+  ) {}
 
   /** Streams stdout chunks to `onChunk`; resolves with the exit code once git exits. */
   stream(args: string[], opts: GitRunOptions, onChunk: (chunk: Buffer) => void): Promise<number> {
     const { cwd, signal, input, okCodes = [0] } = opts;
     if (signal?.aborted) return Promise.reject(new AbortedError());
     return new Promise((resolve, reject) => {
+      const started = performance.now();
       const child = spawn(this.path, args, { cwd, env: ENV, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      const what = `git ${args.join(' ').slice(0, 200)} [${child.pid ?? 'no pid'}]`;
+      this.trace?.(`${what}: started`);
       let stderr = '';
       let settled = false;
-      const finish = (fn: () => void) => {
+      const finish = (fn: () => void, outcome: string) => {
         if (settled) return;
         settled = true;
         signal?.removeEventListener('abort', onAbort);
+        this.trace?.(`${what}: ${outcome} after ${(performance.now() - started).toFixed(0)} ms`);
         fn();
       };
       const onAbort = () => {
         child.kill();
-        finish(() => reject(new AbortedError()));
+        finish(() => reject(new AbortedError()), 'aborted');
       };
       signal?.addEventListener('abort', onAbort, { once: true });
       child.stdout.on('data', (c: Buffer) => {
@@ -66,9 +74,9 @@ export class Git {
       child.stderr.setEncoding('utf8').on('data', (c: string) => {
         if (stderr.length < 16_384) stderr += c;
       });
-      child.on('error', (e) => finish(() => reject(e)));
-      child.on('close', (code) => {
-        finish(() => (code !== null && okCodes.includes(code) ? resolve(code) : reject(new GitError(args, code, stderr))));
+      child.on('error', (e) => finish(() => reject(e), `error ${e.message}`));
+      child.on('close', (code, sig) => {
+        finish(() => (code !== null && okCodes.includes(code) ? resolve(code) : reject(new GitError(args, code, stderr))), `exit ${code ?? sig}`);
       });
       child.stdin.on('error', () => {}); // git may exit before reading all input
       child.stdin.end(input ?? '');

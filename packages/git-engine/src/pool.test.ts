@@ -48,6 +48,19 @@ describe('WorkerPool', () => {
     await expect(pool.request('blame.file', { root, path: 'missing.txt' }, { affinity: root })).rejects.toMatchObject({ code: 'not-tracked' });
   });
 
+  it('forwards worker traces: every git run and blame step', async () => {
+    const lines: string[] = [];
+    const p = new WorkerPool({ workerPath, gitPath: 'git', size: 1, trace: (m) => lines.push(m) });
+    try {
+      await p.request('blame.file', { root, path: 'a.txt' }, { affinity: root });
+    } finally {
+      p.dispose();
+    }
+    expect(lines).toContainEqual(expect.stringMatching(/^worker 0: git --version \[\d+\]: started$/));
+    expect(lines).toContainEqual(expect.stringMatching(/^worker 0: git blame --incremental .* -- a\.txt \[\d+\]: exit 0 after \d+ ms$/));
+    expect(lines).toContainEqual(expect.stringMatching(/^worker 0: blame a\.txt: done in \d+ ms \(git\)$/));
+  });
+
   it('a disposed pool rejects requests', async () => {
     const p = new WorkerPool({ workerPath, gitPath: 'git', size: 1 });
     p.dispose();

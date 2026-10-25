@@ -27,6 +27,7 @@ export function activate(context: vscode.ExtensionContext) {
       return gitApi?.git.path ?? 'git';
     },
     log: (m) => log.info(m),
+    trace: (m) => log.trace(m),
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- dev-only, dropped from production bundles
     validate: __DEV__ ? require('../../protocol/src/schemas').validateWire : undefined,
   });

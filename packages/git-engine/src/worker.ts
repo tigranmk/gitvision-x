@@ -1,6 +1,6 @@
 /** worker_threads entry: bundled to dist/worker.js. */
 import { parentPort } from 'node:worker_threads';
-import { RpcEndpoint, type EngineMethods, type Transport, type WireMessage, type NoMethods } from '@gvx/protocol';
+import { RpcEndpoint, type EngineEvents, type EngineMethods, type EventMap, type Transport, type WireMessage, type NoMethods } from '@gvx/protocol';
 import { registerEngine } from './engine';
 
 if (!parentPort) throw new Error('worker.js must run in a worker thread');
@@ -15,4 +15,4 @@ const transport: Transport = {
   },
 };
 
-registerEngine(new RpcEndpoint<EngineMethods, NoMethods>(transport));
+registerEngine(new RpcEndpoint<EngineMethods, NoMethods, EngineEvents, EventMap>(transport));
