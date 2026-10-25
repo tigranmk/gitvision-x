@@ -150,6 +150,67 @@ const builders = {
     fi.run(dir);
   },
 
+  /**
+   * The 12 conflict scenarios (M4 gate): branches <name>-base, <name>-ours, <name>-theirs per scenario, each
+   * touching only its own files. Tests merge (or rebase) theirs into ours to stop at the conflict. See
+   * test/fixtures/README.md for the list.
+   */
+  conflicts(dir) {
+    init(dir);
+    commit(dir, 'root', { 'README.md': '# conflicts\n' });
+    const ten = (tag, changed = {}) => lines(10, (i) => (changed[i] !== undefined ? changed[i] : `${tag} line ${i}`));
+    const bin = (n) => Buffer.from(Array.from({ length: 64 }, (_, i) => (i === 0 ? 0 : (i * n) % 256)));
+    const scenario = (name, base, ours, theirs) => {
+      git(dir, ['checkout', '-q', '-b', `${name}-base`, 'main']);
+      apply(dir, base);
+      git(dir, ['add', '-A']);
+      git(dir, ['commit', '-q', '-m', `${name}: base`]);
+      for (const [side, change] of [['ours', ours], ['theirs', theirs]]) {
+        git(dir, ['checkout', '-q', '-b', `${name}-${side}`, `${name}-base`]);
+        apply(dir, change);
+        git(dir, ['add', '-A']);
+        git(dir, ['commit', '-q', '-m', `${name}: ${side}`]);
+      }
+    };
+    // change: { file: content | null (delete) | { renameTo } }
+    const apply = (d, change) => {
+      for (const [f, c] of Object.entries(change)) {
+        if (c === null) git(d, ['rm', '-q', f]);
+        else if (c && typeof c === 'object' && 'renameTo' in c) {
+          mkdirSync(path.dirname(path.join(d, c.renameTo)), { recursive: true });
+          git(d, ['mv', f, c.renameTo]);
+        } else write(d, f, c);
+      }
+    };
+    for (const kind of ['m', 'r']) {
+      scenario(`${kind}-simple`, { [`${kind}-simple.txt`]: ten('s') }, { [`${kind}-simple.txt`]: ten('s', { 4: 'ours line 4' }) }, { [`${kind}-simple.txt`]: ten('s', { 4: 'theirs line 4' }) });
+      // Changes 10 lines apart: git keeps them as three hunks (closer ones it joins into one).
+      const many = (tag, changed = {}) => lines(24, (i) => (changed[i] !== undefined ? changed[i] : `${tag} line ${i}`));
+      scenario(
+        `${kind}-multi`,
+        { [`${kind}-multi.txt`]: many('m') },
+        { [`${kind}-multi.txt`]: many('m', { 1: 'ours 1', 11: 'ours 11', 21: 'ours 21' }) },
+        { [`${kind}-multi.txt`]: many('m', { 1: 'theirs 1', 11: 'theirs 11', 21: 'theirs 21' }) },
+      );
+      scenario(`${kind}-diff3`, { [`${kind}-diff3.txt`]: ten('d') }, { [`${kind}-diff3.txt`]: ten('d', { 3: 'ours 3' }) }, { [`${kind}-diff3.txt`]: ten('d', { 3: 'theirs 3' }) });
+      scenario(
+        `${kind}-delete-modify`,
+        { [`${kind}-dm.txt`]: ten('dm') },
+        { [`${kind}-dm.txt`]: ten('dm', { 2: 'ours edit' }) },
+        { [`${kind}-dm.txt`]: null },
+      );
+      scenario(`${kind}-binary`, { [`${kind}-b.bin`]: bin(3) }, { [`${kind}-b.bin`]: bin(5) }, { [`${kind}-b.bin`]: bin(7) });
+    }
+    scenario(
+      'm-zdiff3',
+      { 'm-zdiff3.txt': ten('z') },
+      { 'm-zdiff3.txt': ten('z', { 6: 'ours 6a\nours 6b' }) },
+      { 'm-zdiff3.txt': ten('z', { 6: 'theirs 6a\ntheirs 6b' }) },
+    );
+    scenario('m-rename-rename', { 'm-rr.txt': ten('rr') }, { 'm-rr.txt': { renameTo: 'm-rr-ours.txt' } }, { 'm-rr.txt': { renameTo: 'm-rr-theirs.txt' } });
+    git(dir, ['checkout', '-q', 'main']);
+  },
+
   /** An octopus merge of three branches, plus an unrelated orphan root merged in. */
   octopus(dir) {
     init(dir);

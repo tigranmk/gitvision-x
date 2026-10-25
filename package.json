@@ -170,6 +170,51 @@
         "command": "gitvision.graph.reveal",
         "title": "Show Commit in Graph",
         "category": "GitVision"
+      },
+      {
+        "command": "gitvision.conflicts.openMergeEditor",
+        "title": "Conflicts: Open in 3-way Merge Editor",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.conflicts.run",
+        "title": "Conflicts: Continue, Skip or Abort…",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.conflicts.acceptAll",
+        "title": "Conflicts: Accept All…",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.conflicts.accept",
+        "title": "Conflicts: Accept",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.conflicts.pickLines",
+        "title": "Conflicts: Pick Lines",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.conflicts.compare",
+        "title": "Conflicts: Compare Sides",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.conflicts.explain",
+        "title": "Conflicts: Explain",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.conflicts.resolveFile",
+        "title": "Conflicts: Resolve File",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision._openCommit",
+        "title": "Open Commit",
+        "category": "GitVision"
       }
     ],
     "menus": {
@@ -237,6 +282,34 @@
         {
           "command": "gitvision.timeTravel.togglePin",
           "when": "gitvision.timeTravel.active"
+        },
+        {
+          "command": "gitvision.conflicts.acceptAll",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.conflicts.accept",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.conflicts.pickLines",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.conflicts.compare",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.conflicts.explain",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.conflicts.resolveFile",
+          "when": "false"
+        },
+        {
+          "command": "gitvision._openCommit",
+          "when": "false"
         }
       ],
       "view/title": [

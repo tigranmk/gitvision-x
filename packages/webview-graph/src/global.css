@@ -42,3 +42,8 @@ body.vscode-high-contrast-light .ref {
   border-style: dashed;
   color: var(--gvx-text-muted);
 }
+
+.ref.conflict {
+  border-color: var(--gvx-conflict);
+  color: var(--gvx-conflict);
+}

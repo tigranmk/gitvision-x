@@ -19,6 +19,8 @@ export interface GraphMethodDeps {
   dropBranch(args: GraphHostMethods['graph.dropBranch']['params']): PromiseLike<void>;
   fetchMore(root: string): PromiseLike<void>;
   openCommit(root: string, sha: string): PromiseLike<void>;
+  conflictFile(root: string, path: string, action: 'open' | 'keep' | 'delete' | 'ours' | 'theirs'): PromiseLike<unknown>;
+  conflictRun(root: string, choice: 'continue' | 'skip' | 'abort'): PromiseLike<unknown>;
 }
 
 export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
@@ -65,6 +67,14 @@ export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
   rpc.handle('graph.dropBranch', async (args) => {
     current(args.root);
     await d.dropBranch(args);
+    return null;
+  });
+  rpc.handle('graph.conflictFile', async ({ root, path, action }) => {
+    await d.conflictFile(current(root), path, action);
+    return null;
+  });
+  rpc.handle('graph.conflictRun', async ({ root, choice }) => {
+    await d.conflictRun(current(root), choice);
     return null;
   });
   rpc.handle('graph.openCommit', async ({ root, sha }) => {

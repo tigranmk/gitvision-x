@@ -6,8 +6,8 @@ GitVision X shows git blame for the line your cursor is on, quietly and fast, an
 follows your cursor. Hover the blame to see the line's history. It's one free extension with no CodeLens
 clutter and no paywalled views.
 
-> **Preview.** Inline blame, the commit graph and the time-travel slider are ready to use. Conflict
-> resolution is still in development (see [Roadmap](#roadmap)).
+> **Preview.** Inline blame, the commit graph, the time-travel slider and conflict resolution are ready to
+> use (see [Roadmap](#roadmap)).
 
 ## Features
 
@@ -80,6 +80,22 @@ Step a file back through every revision it has had, in the editor you're already
 - Renames are followed: older revisions show the file under its old name.
 - From the blame hover, **Time travel** jumps straight to the revision that changed the line.
 
+### Merge and rebase conflicts
+
+When a merge, rebase, cherry-pick or revert stops with conflicts:
+
+- Each conflict in the editor gets **Accept Current**, **Accept Incoming**, **Accept Both**, **Pick Lines…**
+  (choose lines from either side), **Compare** and **Explain**, plus who last changed those lines on each
+  side. Every choice is a single undo step. diff3/zdiff3 base sections start folded.
+- **Explain** lists the commits on each side, since the branches split, that touched those lines.
+- Conflicts that aren't in a file's text get a card instead: a file deleted on one side and changed on the
+  other (keep or delete it), a file renamed differently on each side (pick a name), or a binary file (keep
+  one side).
+- **Open in 3-way Merge Editor** hands the file to VS Code's merge editor.
+- In the graph, the operation in progress appears as a temporary node joining both sides. Select it for
+  every conflicted file, progress so far, and **Continue**, **Skip** or **Abort**. The status bar shows the
+  same, with the step counter during a rebase.
+
 ### Optional extras
 
 - **Gutter heatmap:** colours the gutter by line age, from warm (recent) to cool (old).
@@ -102,6 +118,8 @@ Open the Command Palette (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P
 |---|---|
 | **GitVision: Open Graph Beside** | Opens the commit graph next to the editor. |
 | **GitVision: Time Travel: Browse File History…** | Lists the active file's revisions and previews them as you move. |
+| **GitVision: Conflicts: Continue, Skip or Abort…** | Finishes, skips the current commit of, or aborts the merge or rebase in progress. |
+| **GitVision: Conflicts: Open in 3-way Merge Editor** | Opens the active conflicted file in VS Code's merge editor. |
 | **GitVision: Toggle Inline Blame** | Turns the current-line blame on or off. |
 | **GitVision: Blame This File** | Blames a file over 20,000 lines, which is skipped automatically. |
 | **GitVision: Show Commit Index Stats** | Shows how many commits are indexed for each open repository. |
@@ -145,7 +163,9 @@ don't see blame twice. Nothing else in GitLens is changed, and you can decline.
   cache is capped at 256 MB.
 - Time travel only reads: revisions open read-only and are never written to disk.
 - It changes your repository only when you ask: a graph action you confirmed (checkout, branch, tag,
-  cherry-pick, revert, reset, merge, rebase), or the commit-graph file if you accept that offer.
+  cherry-pick, revert, reset, merge, rebase), a conflict resolution you chose (staging, deleting or taking
+  one side of a file; continuing, skipping or aborting the operation), or the commit-graph file if you
+  accept that offer.
 
 ## Requirements
 
@@ -177,7 +197,7 @@ don't see blame twice. Nothing else in GitLens is changed, and you can decline.
 | Inline blame with line history | Available (preview) |
 | Commit graph that follows your cursor | Available (preview) |
 | Time-travel slider for a file's history | Available (preview) |
-| Conflict resolution with a branch-structure map | Planned |
+| Conflict resolution with a branch-structure map | Available (preview) |
 
 ## Feedback and contributing
 

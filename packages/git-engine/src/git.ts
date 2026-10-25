@@ -28,6 +28,8 @@ export interface GitRunOptions {
   input?: string;
   /** Exit codes treated as success (default [0]). */
   okCodes?: number[];
+  /** Extra environment (e.g. GIT_EDITOR for continuing a rebase without an editor). */
+  env?: Record<string, string>;
 }
 
 const ENV = {
@@ -47,11 +49,11 @@ export class Git {
 
   /** Streams stdout chunks to `onChunk`; resolves with the exit code once git exits. */
   stream(args: string[], opts: GitRunOptions, onChunk: (chunk: Buffer) => void): Promise<number> {
-    const { cwd, signal, input, okCodes = [0] } = opts;
+    const { cwd, signal, input, okCodes = [0], env } = opts;
     if (signal?.aborted) return Promise.reject(new AbortedError());
     return new Promise((resolve, reject) => {
       const started = performance.now();
-      const child = spawn(this.path, args, { cwd, env: ENV, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(this.path, args, { cwd, env: env ? { ...ENV, ...env } : ENV, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
       const what = `git ${args.join(' ').slice(0, 200)} [${child.pid ?? 'no pid'}]`;
       this.trace?.(`${what}: started`);
       let stderr = '';

@@ -68,3 +68,19 @@ describe('ViewStore', () => {
     expect(rows('  ')).toEqual([]);
   });
 });
+
+describe('conflict map node', () => {
+  it('puts a temporary node on top whose lanes join both sides', async () => {
+    const base = await setup();
+    const store = new ViewStore(git);
+    const main = repo.git('rev-parse', 'main').trim();
+    const other = repo.git('rev-parse', 'other').trim();
+    const { table, layout } = await store.get(repo.dir, base, { kind: 'all', pending: { parents: [main, other] } });
+    expect(table.count).toBe(base.count + 1);
+    expect(table.sha(0)).toBe('0'.repeat(40));
+    expect(table.parentsOf(0)).toEqual([table.rowOf(main), table.rowOf(other)]);
+    expect(layout.page(0, 1).edges.length).toBe(2); // two OUT edges from the node
+    // Without pending, the plain view is untouched (a different cache entry).
+    expect((await store.get(repo.dir, base, { kind: 'all' })).table).toBe(base);
+  });
+});

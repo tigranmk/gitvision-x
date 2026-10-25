@@ -529,4 +529,206 @@ export function defineSuite(): void {
       await vscode.commands.executeCommand('gitvision.timeTravel.exit');
     });
   });
+  describe('F4 — conflicts (gate: the 12 fixture scenarios resolve to the expected tree)', () => {
+    const fixtures = path.resolve(__dirname, '../../test/fixtures/repos');
+    const clones: string[] = [];
+    const gitIn = (dir: string, ...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+    const ten = (tag: string, change: Record<number, string> = {}, n = 10) => Array.from({ length: n }, (_, i) => change[i] ?? `${tag} line ${i}`).join('\n') + '\n';
+    type Conflicts = { op: string | null; files: { path: string; kind: string }[]; hunksTotal: number; hunksResolved: number; lastWrite?: { code?: string; error?: string } };
+    const conflicts = (root: string) => vscode.commands.executeCommand<Conflicts | null>('gitvision._test.conflicts', root);
+
+    after(() => {
+      for (const d of clones) rmSync(d, { recursive: true, force: true });
+    });
+
+    /** Clones the fixture and stops scenario `name` at its conflict (merge theirs into ours, or rebase theirs onto ours). */
+    async function stop(name: string, style: 'merge' | 'diff3' | 'zdiff3' = 'merge') {
+      const dir = mkdtempSync(path.join(tmpdir(), `gvx-c-${name}-`));
+      execFileSync('git', ['clone', '-q', '--no-local', path.join(fixtures, 'conflicts'), dir]);
+      clones.push(dir);
+      const root = realpathSync.native(dir).replace(/\\/g, '/');
+      for (const b of gitIn(root, 'branch', '-r', '--format=%(refname:short)').split('\n').filter((x) => x.startsWith(`origin/${name}-`))) {
+        gitIn(root, 'branch', '-q', b.slice(7), b);
+      }
+      gitIn(root, 'config', 'merge.conflictStyle', style);
+      gitIn(root, 'config', 'user.name', 'IT');
+      gitIn(root, 'config', 'user.email', 'it@x');
+      const op = name.startsWith('m-') ? 'merge' : 'rebase';
+      try {
+        if (op === 'merge') {
+          gitIn(root, 'checkout', '-q', `${name}-ours`);
+          gitIn(root, 'merge', '--no-edit', `${name}-theirs`);
+        } else {
+          gitIn(root, 'checkout', '-q', `${name}-theirs`);
+          gitIn(root, 'rebase', `${name}-ours`);
+        }
+        assert.fail(`${name} did not stop with a conflict`);
+      } catch (e) {
+        if (e instanceof assert.AssertionError) throw e;
+      }
+      await vscode.commands.executeCommand('gitvision._test.openRepo', root);
+      const c = await waitFor(`${name} conflict state`, async () => {
+        const s = await conflicts(root);
+        return s?.op === op && s.files.length > 0 && s;
+      });
+      return { root, op, c };
+    }
+
+    const doc = async (root: string, file: string) => {
+      const d = await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(root, file)));
+      await vscode.window.showTextDocument(d);
+      return d;
+    };
+    /** Opening-marker lines of the document's hunks. */
+    const hunks = (d: vscode.TextDocument) => d.getText().split('\n').flatMap((l, i) => (/^<{7} /.test(l) ? [i] : []));
+    const accept = async (d: vscode.TextDocument, nth: number, how: 'current' | 'incoming' | 'both') => {
+      assert.ok(await vscode.commands.executeCommand('gitvision.conflicts.accept', d.uri, hunks(d)[nth], how));
+    };
+    /** Continues the operation and waits until it is done. */
+    async function finish(root: string) {
+      assert.ok(await vscode.commands.executeCommand('gitvision._test.runOperation', root, 'continue'), JSON.stringify((await conflicts(root))?.lastWrite));
+      await waitFor('operation finished', async () => !(await conflicts(root)));
+      assert.equal(gitIn(root, 'status', '--porcelain'), '');
+    }
+    const head = (root: string, file: string) => gitIn(root, 'show', `HEAD:${file}`);
+    const exists = (root: string, file: string) => gitIn(root, 'ls-tree', '--name-only', 'HEAD', '--', file).trim() !== '';
+    const isMergeCommit = (root: string) => gitIn(root, 'log', '-1', '--format=%P').trim().split(' ').length === 2;
+
+    it('m-simple: accept current', async () => {
+      const { root, c } = await stop('m-simple');
+      assert.deepEqual(c.files, [{ path: 'm-simple.txt', kind: 'content' }]);
+      const d = await doc(root, 'm-simple.txt');
+      const lenses = await vscode.commands.executeCommand<{ line: number; title: string }[]>('gitvision._test.conflictLenses', d.uri);
+      assert.ok(lenses.some((l) => l.title === 'Accept Current (m-simple-ours)'), JSON.stringify(lenses));
+      assert.ok(lenses.some((l) => l.title === 'Accept Incoming (m-simple-theirs)'));
+      await accept(d, 0, 'current');
+      await waitFor('hunk resolved', async () => hunks(d).length === 0);
+      // One WorkspaceEdit: a single undo restores the whole hunk, markers and both sides.
+      await vscode.window.showTextDocument(d);
+      await vscode.commands.executeCommand('undo');
+      await waitFor('one undo restores the hunk', async () => hunks(d).length === 1 && d.getText().includes('theirs line 4'));
+      await accept(d, 0, 'current');
+      await finish(root);
+      assert.ok(isMergeCommit(root));
+      assert.equal(head(root, 'm-simple.txt'), ten('s', { 4: 'ours line 4' }));
+    });
+
+    it('m-multi: current, incoming and both, hunk by hunk, with progress', async () => {
+      const { root, c } = await stop('m-multi');
+      assert.equal(c.hunksTotal, 3);
+      const d = await doc(root, 'm-multi.txt');
+      await accept(d, 0, 'current');
+      await waitFor('progress 1 of 3', async () => (await conflicts(root))?.hunksResolved === 1);
+      await accept(d, 0, 'incoming');
+      await accept(d, 0, 'both');
+      await finish(root);
+      assert.equal(head(root, 'm-multi.txt'), ten('m', { 1: 'ours 1', 11: 'theirs 11', 21: 'ours 21\ntheirs 21' }, 24));
+    });
+
+    it('m-diff3: the base section is read; accept incoming', async () => {
+      const { root } = await stop('m-diff3', 'diff3');
+      const d = await doc(root, 'm-diff3.txt');
+      assert.ok(/^\|{7} /m.test(d.getText()), 'diff3 base section present');
+      const folds = await vscode.commands.executeCommand<vscode.FoldingRange[]>('vscode.executeFoldingRangeProvider', d.uri);
+      assert.ok(folds.some((f) => d.lineAt(f.start).text.startsWith('|||||||')), 'base section is foldable');
+      await accept(d, 0, 'incoming');
+      await finish(root);
+      assert.equal(head(root, 'm-diff3.txt'), ten('d', { 3: 'theirs 3' }));
+    });
+
+    it('m-zdiff3: line-level picks from both sides', async () => {
+      const { root } = await stop('m-zdiff3', 'zdiff3');
+      const d = await doc(root, 'm-zdiff3.txt');
+      const lines = d.getText().split('\n');
+      const picked = [lines.indexOf('ours 6a'), lines.indexOf('theirs 6b')];
+      assert.ok(picked.every((l) => l > 0), d.getText());
+      assert.ok(await vscode.commands.executeCommand('gitvision.conflicts.pickLines', d.uri, hunks(d)[0], picked));
+      await finish(root);
+      assert.equal(head(root, 'm-zdiff3.txt'), ten('z', { 6: 'ours 6a\ntheirs 6b' }));
+    });
+
+    it('m-delete-modify: a file card keeps the edited file', async () => {
+      const { root, c } = await stop('m-delete-modify');
+      assert.deepEqual(c.files, [{ path: 'm-dm.txt', kind: 'deleted-by-them' }]);
+      const d = await doc(root, 'm-dm.txt');
+      const lenses = await vscode.commands.executeCommand<{ title: string }[]>('gitvision._test.conflictLenses', d.uri);
+      assert.ok(lenses.some((l) => /m-delete-modify-theirs deleted this file/.test(l.title)), JSON.stringify(lenses));
+      assert.ok(await vscode.commands.executeCommand('gitvision.conflicts.resolveFile', root, 'm-dm.txt', 'keep'));
+      await finish(root);
+      assert.equal(head(root, 'm-dm.txt'), ten('dm', { 2: 'ours edit' }));
+    });
+
+    it('m-rename-rename: keep one of the two new names', async () => {
+      const { root, c } = await stop('m-rename-rename');
+      assert.equal(c.files.length, 3);
+      assert.ok(await vscode.commands.executeCommand('gitvision.conflicts.resolveFile', root, 'm-rr-ours.txt', 'keep'));
+      await finish(root);
+      assert.ok(exists(root, 'm-rr-ours.txt'));
+      assert.ok(!exists(root, 'm-rr-theirs.txt'));
+      assert.ok(!exists(root, 'm-rr.txt'));
+    });
+
+    it('m-binary: keep theirs', async () => {
+      const { root, c } = await stop('m-binary');
+      assert.deepEqual(c.files, [{ path: 'm-b.bin', kind: 'binary' }]);
+      assert.ok(await vscode.commands.executeCommand('gitvision.conflicts.resolveFile', root, 'm-b.bin', 'theirs'));
+      await finish(root);
+      assert.equal(gitIn(root, 'rev-parse', 'HEAD:m-b.bin'), gitIn(root, 'rev-parse', 'm-binary-theirs:m-b.bin'));
+    });
+
+    it('r-simple: rebase, accept incoming (the commit being replayed)', async () => {
+      const { root } = await stop('r-simple');
+      const d = await doc(root, 'r-simple.txt');
+      await accept(d, 0, 'incoming');
+      await finish(root);
+      assert.equal(head(root, 'r-simple.txt'), ten('s', { 4: 'theirs line 4' }));
+      assert.equal(gitIn(root, 'rev-parse', 'HEAD~1').trim(), gitIn(root, 'rev-parse', 'r-simple-ours').trim());
+    });
+
+    it('r-multi: accept both in every hunk at once', async () => {
+      const { root } = await stop('r-multi');
+      const d = await doc(root, 'r-multi.txt');
+      assert.ok(await vscode.commands.executeCommand('gitvision.conflicts.acceptAll', d.uri, 'both'));
+      await finish(root);
+      assert.equal(head(root, 'r-multi.txt'), ten('m', { 1: 'ours 1\ntheirs 1', 11: 'ours 11\ntheirs 11', 21: 'ours 21\ntheirs 21' }, 24));
+    });
+
+    it('r-diff3: accept current; nothing left to commit, so the commit is skipped', async () => {
+      const { root } = await stop('r-diff3', 'diff3');
+      const d = await doc(root, 'r-diff3.txt');
+      await accept(d, 0, 'current');
+      await finish(root);
+      assert.equal(head(root, 'r-diff3.txt'), ten('d', { 3: 'ours 3' }));
+      assert.equal(gitIn(root, 'rev-parse', 'HEAD').trim(), gitIn(root, 'rev-parse', 'r-diff3-ours').trim());
+    });
+
+    it('r-delete-modify: a file card deletes the file', async () => {
+      const { root, c } = await stop('r-delete-modify');
+      assert.deepEqual(c.files, [{ path: 'r-dm.txt', kind: 'deleted-by-them' }]);
+      assert.ok(await vscode.commands.executeCommand('gitvision.conflicts.resolveFile', root, 'r-dm.txt', 'delete'));
+      await finish(root);
+      assert.ok(!exists(root, 'r-dm.txt'));
+    });
+
+    it('r-binary: keep ours', async () => {
+      const { root } = await stop('r-binary');
+      assert.ok(await vscode.commands.executeCommand('gitvision.conflicts.resolveFile', root, 'r-b.bin', 'ours'));
+      await finish(root);
+      assert.equal(gitIn(root, 'rev-parse', 'HEAD:r-b.bin'), gitIn(root, 'rev-parse', 'r-binary-ours:r-b.bin'));
+    });
+
+    it('explains a hunk: the commit on each side that changed it; abort goes back', async () => {
+      const { root } = await stop('m-simple');
+      const d = await doc(root, 'm-simple.txt');
+      const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>('vscode.executeCodeLensProvider', d.uri, 50);
+      const chips = lenses.map((l) => l.command?.title ?? '').filter((t) => t.includes('$(account)'));
+      assert.equal(chips.length, 2, JSON.stringify(lenses.map((l) => l.command?.title)));
+      assert.ok(chips.every((t) => /Fixture Bot/.test(t)), chips.join(' | '));
+      const before = gitIn(root, 'rev-parse', 'm-simple-ours').trim();
+      await vscode.commands.executeCommand('gitvision._test.answer', 'Abort');
+      assert.ok(await vscode.commands.executeCommand('gitvision._test.runOperation', root, 'abort'));
+      await waitFor('aborted', async () => !(await conflicts(root)));
+      assert.equal(gitIn(root, 'rev-parse', 'HEAD').trim(), before);
+    });
+  });
 }

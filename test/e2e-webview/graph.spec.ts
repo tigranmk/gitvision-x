@@ -340,3 +340,47 @@ test('keyboard: ↑/↓, Page/Home/End move the active row; Space selects; Enter
   await page.keyboard.press('Escape');
   await expect(page.locator('aside.details')).toHaveCount(0);
 });
+
+test('conflict map: a temporary node joins both sides; its panel shows progress, cards and the operation buttons', async ({ page }) => {
+  const sha = (root: string, rev: string) => execFileSync('git', ['rev-parse', rev], { cwd: root, encoding: 'utf8' }).trim();
+  h = await openGraph(page, 'small', {
+    conflict: (root) => ({
+      op: 'merge',
+      ours: sha(root, 'main~1'),
+      theirs: sha(root, 'feature'),
+      oursLabel: 'main',
+      theirsLabel: 'feature',
+      rebase: null,
+      hunksTotal: 4,
+      hunksResolved: 1,
+      files: [
+        { path: 'src/app.ts', kind: 'content', total: 3, remaining: 2, resolved: false },
+        { path: 'logo.png', kind: 'binary', total: null, remaining: null, resolved: false },
+        { path: 'old.txt', kind: 'deleted-by-them', total: null, remaining: null, resolved: true },
+      ],
+    }),
+  });
+  const first = page.locator('[role=option]').first();
+  await expect(first.locator('.subject')).toHaveText(/Merging feature into main:\s+3 of 4 conflicts left/);
+  await expect(page.locator('[role=option]')).toHaveCount(6); // 5 commits + the temporary node
+  await page.screenshot({ path: 'test-results/graph-conflict.png' });
+
+  await first.click();
+  const map = page.locator('aside.conflict-map');
+  await expect(map.locator('h2')).toHaveText('Merging feature into main');
+  await expect(map.getByRole('img')).toHaveAttribute('aria-label', '1 of 4 conflicts resolved');
+  await expect(map.locator('li', { hasText: 'src/app.ts' })).toContainText('2 of 3 conflicts left');
+  await expect(map.locator('li', { hasText: 'old.txt' })).toContainText('resolved');
+  // Continue waits for every conflict; a binary file gets a keep-one-side card.
+  await expect(map.getByRole('button', { name: /Commit merge/ })).toBeDisabled();
+  await map.locator('li', { hasText: 'logo.png' }).getByRole('button', { name: 'Keep feature' }).click();
+  await map.getByRole('button', { name: 'Open src/app.ts' }).click();
+  await map.getByRole('button', { name: /Abort merge/ }).click();
+  await expect.poll(() => h!.conflictCalls).toEqual(['theirs:logo.png', 'open:src/app.ts', 'run:abort']);
+  await page.screenshot({ path: 'test-results/graph-conflict-map.png' });
+
+  // The operation ends: the node and the panel go away.
+  h.host.emit('graph.conflict', { root: h.root, conflict: null });
+  await expect(page.locator('[role=option]')).toHaveCount(5);
+  await expect(map).toHaveCount(0);
+});

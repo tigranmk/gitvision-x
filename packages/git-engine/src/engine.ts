@@ -1,5 +1,5 @@
 /** Registers the git engine's handlers on an RPC endpoint (runs inside a worker thread). */
-import { withTransfer, type GraphView, type EngineEvents, type EngineMethods, type EventMap, type RpcEndpoint, type NoMethods } from '@gvx/protocol';
+import { ROW_PENDING, withTransfer, type GraphView, type EngineEvents, type EngineMethods, type EventMap, type RpcEndpoint, type NoMethods } from '@gvx/protocol';
 import { BlameService } from './blame';
 import { commitGraphStatus, writeCommitGraph } from './commitGraph';
 import { Git } from './git';
@@ -7,6 +7,7 @@ import { ViewStore, searchTable } from './graphViews';
 import { IndexStore } from './indexStore';
 import { commitDetails, parseRawNumstat } from './commitDetails';
 import { repoWrite } from './repoWrite';
+import { conflictState, explainConflict } from './conflicts';
 import { fileMicroDiff } from './microDiff';
 import { RevisionStore, fileRevisions } from './fileHistory';
 import { readRefs, resolveRepo } from './repo';
@@ -55,6 +56,7 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
       const { name, email } = table.author(r);
       commits.push({ sha: table.sha(r), parents: table.parentCount(r), subject: table.subject(r), author: name, authorMail: email, time: table.time(r) });
     }
+    if (view?.pending && p.start === 0 && p.flags.length) p.flags[0]! |= ROW_PENDING;
     const page = { ...p, total: table.count, commits };
     return withTransfer(page, [p.nodeLane.buffer, p.flags.buffer, p.edgeStart.buffer, p.edges.buffer] as ArrayBuffer[]);
   });
@@ -103,6 +105,9 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
     if (![from, to].every((s) => /^[0-9a-f]{40}$/.test(s))) throw Object.assign(new Error('compare needs full commit ids'), { code: 'invalid' });
     return parseRawNumstat(await ready().git.text(['diff-tree', '-r', '-z', '-M', '--raw', '--numstat', from, to], { cwd: root, signal }));
   });
+
+  rpc.handle('conflicts.state', ({ root }, { signal }) => conflictState(ready().git, root, signal));
+  rpc.handle('conflicts.explain', ({ root, path, side, lines }, { signal }) => explainConflict(ready().git, root, path, side, lines, signal));
 
   rpc.handle('repo.refs', ({ root }, { signal }) => readRefs(ready().git, root, signal));
 

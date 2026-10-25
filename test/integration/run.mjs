@@ -10,7 +10,8 @@ import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
 import * as esbuild from 'esbuild';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const r = spawnSync(process.execPath, ['scripts/fixtures.mjs', '--only', 'small'], { cwd: ROOT, stdio: 'inherit' });
+// small is the workspace; the others are cloned by the time-travel and conflict tests.
+const r = spawnSync(process.execPath, ['scripts/fixtures.mjs', '--only', 'small,renames,revisions-500,conflicts'], { cwd: ROOT, stdio: 'inherit' });
 if (r.status !== 0) process.exit(1);
 
 await esbuild.build({

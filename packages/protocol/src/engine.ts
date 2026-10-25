@@ -208,7 +208,14 @@ export type RepoWriteOp =
   /** Rebases `branch` onto `upstream` (checks `branch` out). */
   | { kind: 'rebase'; upstream: string; branch: string }
   /** Shallow clone: fetch `by` more commits of history (git fetch --deepen). */
-  | { kind: 'deepen'; by: number };
+  | { kind: 'deepen'; by: number }
+  /** Conflicts: take one side of a whole file (binary, or content resolved wholesale). */
+  | { kind: 'takeSide'; path: string; side: 'ours' | 'theirs' }
+  /** Conflicts: keep a file as it is in the working tree (mark resolved), or delete it. */
+  | { kind: 'markResolved'; path: string }
+  | { kind: 'deleteFile'; path: string }
+  /** The stopped operation: finish it, skip the current commit (rebase / pick), or abort it. */
+  | { kind: 'continue' | 'skip' | 'abort'; op: ConflictOp };
 
 /**
  * Errors from repo.write carry code 'conflict' (the operation stopped with conflicts to resolve),
@@ -244,6 +251,49 @@ export interface RevisionView {
 }
 
 export type RevisionRef = { sha: string; path: string };
+
+export type ConflictOp = 'merge' | 'rebase' | 'cherry-pick' | 'revert';
+
+/** How a path is unmerged (from its index stages: 1 base, 2 ours, 3 theirs). */
+export type ConflictKind =
+  | 'content' // both sides changed it: markers in the file
+  | 'binary' // both changed a binary file: keep ours or theirs
+  | 'deleted-by-us'
+  | 'deleted-by-them'
+  | 'added-by-us' // only ours has it at this path (one side of a rename/rename)
+  | 'added-by-them'
+  | 'both-deleted'; // the original path of a rename/rename
+
+export interface ConflictFile {
+  path: string;
+  kind: ConflictKind;
+  /** Rename/rename: the original path and where each side put it. */
+  rename?: { from: string; ours: string; theirs: string };
+}
+
+export interface ConflictState {
+  /** The operation that stopped, or null when none is in progress. */
+  op: ConflictOp | null;
+  /** HEAD (the side being merged into / rebased onto). */
+  ours: string | null;
+  /** The commit being merged, rebased or picked. */
+  theirs: string | null;
+  /** Where the two sides forked (merge base; for a pick, the picked commit's parent). */
+  base: string | null;
+  oursLabel: string;
+  theirsLabel: string;
+  /** Rebase progress: step `step` of `total` (1-based), or null. */
+  rebase: { step: number; total: number } | null;
+  files: ConflictFile[];
+}
+
+export interface ExplainCommit {
+  sha: string;
+  author: string;
+  authorMail: string;
+  time: number;
+  subject: string;
+}
 
 /** Files above this many lines are blamed on demand only (spec F1). */
 export const AUTO_BLAME_MAX_LINES = 20_000;
@@ -290,6 +340,9 @@ export type EngineMethods = {
   'repo.write': MethodSpec<{ root: string; op: RepoWriteOp }, RepoWriteResult>;
   /** Files changed between two commits (`from` → `to`), like a commit's file list. */
   'commit.compare': MethodSpec<{ root: string; from: string; to: string }, CommitFile[]>;
+  'conflicts.state': MethodSpec<{ root: string }, ConflictState>;
+  /** Commits on one side since the base that touched a hunk's lines (`git log base..side -L`). */
+  'conflicts.explain': MethodSpec<{ root: string; path: string; side: 'ours' | 'theirs'; lines: string[] }, ExplainCommit[]>;
   'repo.refs': MethodSpec<{ root: string }, RepoRefs>;
   'index.contains': MethodSpec<{ root: string; shas: string[] }, boolean[] | null>;
   'repo.commitGraph': MethodSpec<{ root: string }, CommitGraphStatus>;

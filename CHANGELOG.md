@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased — commit graph and time travel
+## Unreleased — commit graph, time travel and conflict resolution
+
+- **Conflicts:** accept current / incoming / both, pick lines, compare and explain each conflict, with who
+  changed it on each side; cards for delete/modify, rename/rename and binary conflicts; open in the 3-way
+  merge editor; a conflict map in the graph with progress and Continue / Skip / Abort; the rebase step
+  counter in the status bar.
 
 - **Time travel:** step a file through its history in place (<kbd>Alt</kbd>+<kbd>[</kbd> / <kbd>Alt</kbd>+<kbd>]</kbd>,
   a slider in the panel, or a searchable list from the editor title). Added lines are tinted, removed lines

@@ -11,6 +11,8 @@ import { isFailure } from './blame/blameStore';
 import type { GitAPI, GitExtension, GitRepository } from './gitApi';
 import { registerCommitGraphOffer } from './commitGraphOffer';
 import { offerGitLensCoexistence } from './gitlens';
+import { ConflictController } from './conflicts/controller';
+import { ConflictStore } from './conflicts/store';
 import { GraphActions } from './graph/actions';
 import { GraphViews } from './graph/graphViews';
 import { registerTimeTravelCommands } from './timeTravel/commands';
@@ -78,6 +80,8 @@ export function activate(context: vscode.ExtensionContext) {
   let graph: GraphViews | undefined;
   let actions: GraphActions | undefined;
   let timeTravel: TimeTravelController | undefined;
+  let conflictStore: ConflictStore | undefined;
+  let conflicts: ConflictController | undefined;
 
   // Discovery and blame run after activation returns.
   setTimeout(() => {
@@ -89,7 +93,9 @@ export function activate(context: vscode.ExtensionContext) {
     }
     blame = new BlameController(context, pool, repos, selection, () => gitApi, log);
     actions = new GraphActions(pool, repos, () => gitApi);
-    graph = new GraphViews(context.extensionUri, pool, repos, selection, () => blame, () => gitApi, actions);
+    conflictStore = new ConflictStore(pool, repos, context.workspaceState);
+    conflicts = new ConflictController(context, pool, repos, conflictStore, () => gitApi);
+    graph = new GraphViews(context.extensionUri, pool, repos, selection, () => blame, () => gitApi, actions, { store: conflictStore, controller: conflicts });
     timeTravel = new TimeTravelController(pool, repos);
     context.subscriptions.push(
       actions,
@@ -99,6 +105,9 @@ export function activate(context: vscode.ExtensionContext) {
       new TimelineView(context.extensionUri, timeTravel, repos),
       // The pinned revision is the selection model's compareTo (spec: one selection model for every surface).
       timeTravel.onDidChange((s) => selection.update({ compareTo: s?.pinned?.sha ?? null })),
+      conflictStore,
+      conflicts,
+      vscode.commands.registerCommand('gitvision._openCommit', (root: string, sha: string) => actions?.openCommit(root, sha)),
       vscode.commands.registerCommand('gitvision.graph.reveal', (a: { root: string; sha: string }) => graph?.reveal(a.root, a.sha)),
     );
     context.subscriptions.push(blame.store.onDidLoad(() => graph?.blameLoaded()));
@@ -129,6 +138,15 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
       vscode.commands.registerCommand('gitvision._test.answer', (...a: (string | undefined)[]) => queueAnswers(...a)),
       vscode.commands.registerCommand('gitvision._test.prompts', () => shownPrompts.splice(0)),
+      vscode.commands.registerCommand('gitvision._test.conflicts', async (root: string) => {
+        const r = (await conflictStore?.refresh(root)) ?? null;
+        return r && { op: r.state.op, oursLabel: r.state.oursLabel, theirsLabel: r.state.theirsLabel, rebase: r.state.rebase, files: r.state.files, progress: r.files, hunksTotal: r.hunksTotal, hunksResolved: r.hunksResolved, lastWrite: conflicts?.lastWrite };
+      }),
+      vscode.commands.registerCommand('gitvision._test.conflictLenses', async (uri: vscode.Uri) => {
+        const lenses = (await vscode.commands.executeCommand<vscode.CodeLens[]>('vscode.executeCodeLensProvider', uri, 50)) ?? [];
+        return lenses.filter((l) => l.command?.command.startsWith('gitvision.conflicts') || l.command?.command === '').map((l) => ({ line: l.range.start.line, title: l.command?.title }));
+      }),
+      vscode.commands.registerCommand('gitvision._test.runOperation', (root: string, choice: 'continue' | 'skip' | 'abort') => conflicts?.runOperation(root, choice)),
       vscode.commands.registerCommand('gitvision._test.openRepo', (dir: string) => repos.open(dir)),
       vscode.commands.registerCommand('gitvision._test.timeTravel', () => ({
         session: timeTravel?.session && {

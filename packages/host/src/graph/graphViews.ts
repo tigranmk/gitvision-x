@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { RpcEndpoint, isCancelled, type GraphHostEvents, type GraphHostMethods, type GraphState, type GraphSync, type Transport } from '@gvx/protocol';
+import { RpcEndpoint, isCancelled, type GraphConflict, type GraphHostEvents, type GraphHostMethods, type GraphState, type GraphSync, type Transport } from '@gvx/protocol';
 import type { WorkerPool } from '@gvx/git-engine';
 import type { BlameController } from '../blame/blameController';
 import type { GitAPI } from '../gitApi';
@@ -15,6 +15,8 @@ import { IDLE_MS } from '../blame/blameController';
 import type { RepoRegistry } from '../repoRegistry';
 import type { SelectionStore } from '../selectionStore';
 import { webviewHtml } from './html';
+import type { ConflictController } from '../conflicts/controller';
+import type { ConflictStore } from '../conflicts/store';
 import type { GraphActions } from './actions';
 import { registerGraphMethods, type GraphRpc } from './methods';
 
@@ -50,6 +52,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     private readonly blame: () => BlameController | undefined,
     private readonly gitApi: () => GitAPI | undefined,
     private readonly actions: GraphActions,
+    private readonly conflicts: { store: ConflictStore; controller: ConflictController },
   ) {
     this.shown = this.pickRoot();
     this.disposables.push(
@@ -68,6 +71,9 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
         if (stats.root !== this.shown) return;
         if (stats.mode !== 'unchanged') this.broadcast();
         else this.emit('graph.refresh', { root: stats.root }); // a checkout can move HEAD between existing tips
+      }),
+      conflicts.store.onDidChange((r) => {
+        if (r.root === this.shown) this.emit('graph.conflict', { root: r.root, conflict: this.conflictOf(r.root) });
       }),
       vscode.window.tabGroups.onDidChangeTabs(() => {
         if (this.shown) this.emit('graph.openFiles', { root: this.shown, paths: this.openFiles(this.shown) });
@@ -120,6 +126,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       userEmail: session?.info.userEmail ?? null,
       sync: this.sync,
       activeFile: this.activeFile(),
+      conflict: this.shown ? this.conflictOf(this.shown) : null,
     };
   }
 
@@ -151,6 +158,9 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       dropBranch: (a) => this.actions.dropBranch(a),
       fetchMore: (root) => this.actions.fetchMore(root),
       openCommit: (root, sha) => this.actions.openCommit(root, sha),
+      conflictFile: (root, path, action) =>
+        action === 'open' ? this.conflicts.controller.openFile(root, path) : this.conflicts.controller.resolveFile(root, path, action),
+      conflictRun: (root, choice) => this.conflicts.controller.runOperation(root, choice),
     });
     this.clients.add(rpc);
     owner.onDidDispose(() => {
@@ -299,12 +309,30 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     return [...paths];
   }
 
+  private conflictOf(root: string): GraphConflict | null {
+    const r = this.conflicts.store.get(root);
+    if (!r?.state.op) return null;
+    const { op, ours, theirs, oursLabel, theirsLabel, rebase } = r.state;
+    const kinds = new Map(r.state.files.map((f) => [f.path, f]));
+    return {
+      op,
+      ours,
+      theirs,
+      oursLabel,
+      theirsLabel,
+      rebase,
+      hunksTotal: r.hunksTotal,
+      hunksResolved: r.hunksResolved,
+      files: r.files.map((f) => ({ ...(kinds.get(f.path) ?? { path: f.path, kind: 'content' as const }), total: f.total, remaining: f.remaining, resolved: f.resolved })),
+    };
+  }
+
   private activeFile(): string | null {
     const sel = this.selection.get();
     return sel.repo === this.shown ? sel.file : null;
   }
 
-  private emit<E extends 'graph.sync' | 'graph.lineage' | 'graph.openFiles' | 'graph.refresh' | 'graph.activeFile' | 'graph.select'>(event: E, data: GraphHostEvents[E]): void {
+  private emit<E extends 'graph.sync' | 'graph.lineage' | 'graph.openFiles' | 'graph.refresh' | 'graph.activeFile' | 'graph.select' | 'graph.conflict'>(event: E, data: GraphHostEvents[E]): void {
     for (const c of this.clients) c.emit(event, data);
   }
 }

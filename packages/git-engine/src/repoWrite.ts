@@ -23,7 +23,43 @@ class WriteError extends Error {
   }
 }
 
-/** argv for an op, after its fields were checked. Exported for tests. */
+/** A git invocation of an op. */
+export interface WriteStep {
+  args: string[];
+  env?: Record<string, string>;
+}
+
+/** Pathspec for one exact path: never read as an option (after --) nor as a glob (literal magic). */
+const literal = (p: string) => `:(literal)${p}`;
+
+/** The git invocations for an op, after its fields were checked. Exported for tests. */
+export function writeSteps(op: RepoWriteOp): WriteStep[] {
+  switch (op.kind) {
+    case 'takeSide':
+      return [{ args: ['checkout', `--${op.side === 'ours' ? 'ours' : 'theirs'}`, '--', literal(op.path)] }, { args: ['add', '--', literal(op.path)] }];
+    case 'markResolved':
+      return [{ args: ['add', '--', literal(op.path)] }];
+    case 'deleteFile':
+      return [{ args: ['rm', '-q', '--', literal(op.path)] }];
+    case 'continue':
+    case 'skip':
+    case 'abort': {
+      // Continuing must not open an editor: keep the message git prepared.
+      const env = { GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true' };
+      if (op.op === 'merge') {
+        if (op.kind === 'skip') throw new WriteError('A merge cannot skip a commit', 'invalid');
+        return [{ args: op.kind === 'continue' ? ['commit', '--no-edit'] : ['merge', '--abort'], env }];
+      }
+      const cmd = op.op === 'rebase' ? 'rebase' : op.op;
+      if (!['rebase', 'cherry-pick', 'revert'].includes(cmd)) throw new WriteError(`Unknown operation ${op.op}`, 'invalid');
+      return [{ args: [cmd, `--${op.kind}`], env }];
+    }
+    default:
+      return [{ args: writeArgs(op) }];
+  }
+}
+
+/** argv for a single-command op, after its fields were checked. Exported for tests. */
 export function writeArgs(op: RepoWriteOp): string[] {
   const sha = (s: string) => {
     if (!SHA.test(s)) throw new WriteError(`Not a full commit id: ${s}`, 'invalid');
@@ -53,6 +89,8 @@ export function writeArgs(op: RepoWriteOp): string[] {
       return ['rebase', '--end-of-options', op.upstream, op.branch];
     case 'deepen':
       return ['fetch', `--deepen=${Math.max(1, Math.min(1_000_000, Math.floor(op.by)))}`];
+    default:
+      throw new WriteError(`${op.kind} is not a single git command`, 'invalid');
   }
 }
 
@@ -81,13 +119,15 @@ export async function repoWrite(git: Git, root: string, op: RepoWriteOp): Promis
       throw new WriteError(`Not a valid name: ${name}`, 'invalid');
     }
   }
-  const argv = writeArgs(op);
+  const steps = writeSteps(op);
   const repo = await resolveRepo(git, root);
   const inProgress = () => (repo ? STOPPED_MARKERS.filter((f) => existsSync(path.join(repo.gitDir, f))) : []);
   const before = inProgress();
   try {
     // No signal: a write is never killed halfway.
-    return { output: (await git.text(argv, { cwd: root })).trim() };
+    let output = '';
+    for (const step of steps) output += (await git.text(step.args, { cwd: root, env: step.env })).trim();
+    return { output };
   } catch (e) {
     if (!(e instanceof GitError)) throw e;
     // A conflict is this op stopping halfway: a marker that was not there before it ran.

@@ -1,5 +1,5 @@
 /** Host ↔ graph webview channel (an RpcEndpoint over the webview's postMessage). */
-import type { CommitDetails, CommitFile, GraphPage, MicroDiff, RefInfo, WorktreeHead } from './engine';
+import type { CommitDetails, CommitFile, ConflictFile, ConflictOp, GraphPage, MicroDiff, RefInfo, WorktreeHead } from './engine';
 import type { GraphView } from './graph';
 import type { MethodSpec } from './rpc';
 
@@ -14,6 +14,27 @@ export interface GraphState {
   sync: GraphSync | null;
   /** Repo-relative path of the active editor's file in this repo (for the "active file" filter). */
   activeFile: string | null;
+  /** A merge / rebase / pick stopped with conflicts (the conflict map), or null. */
+  conflict: GraphConflict | null;
+}
+
+export interface GraphConflictFile extends ConflictFile {
+  /** Hunks when first seen and still open (null: a file-level conflict). */
+  total: number | null;
+  remaining: number | null;
+  resolved: boolean;
+}
+
+export interface GraphConflict {
+  op: ConflictOp;
+  ours: string | null;
+  theirs: string | null;
+  oursLabel: string;
+  theirsLabel: string;
+  rebase: { step: number; total: number } | null;
+  hunksTotal: number;
+  hunksResolved: number;
+  files: GraphConflictFile[];
 }
 
 /** Editor → graph sync, stage 1 (D1): the commit that last touched the cursor line, from the blame cache. */
@@ -63,6 +84,10 @@ export type GraphHostMethods = {
   'clipboard.write': MethodSpec<{ text: string }, null>;
   /** Opens a commit's changes (against its first parent) in VS Code's multi-file diff editor. */
   'graph.openCommit': MethodSpec<{ root: string; sha: string }, null>;
+  /** Conflict map: open a conflicted file, or resolve a file-level conflict. */
+  'graph.conflictFile': MethodSpec<{ root: string; path: string; action: 'open' | 'keep' | 'delete' | 'ours' | 'theirs' }, null>;
+  /** Conflict map: finish, skip or abort the operation. */
+  'graph.conflictRun': MethodSpec<{ root: string; choice: 'continue' | 'skip' | 'abort' }, null>;
   /** Shallow clone: fetch more history (the host confirms nothing: fetching adds, never removes). */
   'graph.fetchMore': MethodSpec<{ root: string }, null>;
   /** A branch chip dropped on another: the host offers merge or rebase and confirms before running it. */
@@ -85,6 +110,8 @@ export type GraphHostEvents = {
   'graph.reset': GraphState;
   'graph.sync': GraphSync | null;
   'graph.lineage': GraphLineage;
+  /** The conflict map changed (an operation started, progressed or ended). */
+  'graph.conflict': { root: string; conflict: GraphConflict | null };
   /** Select and scroll to a commit (from the blame hover's "Show in graph"). */
   'graph.select': { root: string; sha: string };
   /** HEAD or refs may have moved without the index changing (checkout): refetch refs and branch views. */

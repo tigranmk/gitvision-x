@@ -13,6 +13,7 @@ export interface CanvasTheme {
   lineSync: string;
   focus: string;
   head: string;
+  conflict: string;
   /** Set in high-contrast themes: nodes and chips get a 1 px outline in this colour. */
   contrastBorder: string | null;
   highContrast: boolean;
@@ -37,6 +38,7 @@ export function readTheme(root: HTMLElement = document.documentElement, body: HT
     lineSync: v('--gvx-line-sync', '#ea5c0055'),
     focus: v('--gvx-focus', '#007fd4'),
     head: v('--gvx-head', FALLBACK_LANES[0]!),
+    conflict: v('--gvx-conflict', '#e4676b'),
     contrastBorder: highContrast && border !== 'transparent' ? border : null,
     highContrast,
     motionMs: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 120,

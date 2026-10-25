@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { LANE_COLORS, relativeTime, type GraphRef, type GraphRefs, type GraphState, type GraphSync, type GraphView } from '@gvx/protocol';
+  import { LANE_COLORS, PENDING_SHA, relativeTime, type GraphRef, type GraphRefs, type GraphState, type GraphSync, type GraphView } from '@gvx/protocol';
+  import ConflictMap from './ConflictMap.svelte';
   import Details from './Details.svelte';
   import { readTheme, watchTheme, type CanvasTheme } from '@gvx/ui-tokens';
   import { graphWidth, ROW_HEIGHT } from './draw';
@@ -14,11 +15,19 @@
   type Filter = 'all' | 'branch' | 'file';
   const saved = (vscodeApi.getState() ?? {}) as { filter?: Filter };
 
-  let graph = $state<GraphState>({ root: null, total: 0, userEmail: null, sync: null, activeFile: null });
+  let graph = $state<GraphState>({ root: null, total: 0, userEmail: null, sync: null, activeFile: null, conflict: null });
   /** Which commits are shown; persisted per webview. "file" follows the active editor. */
   let filter = $state<Filter>(saved.filter ?? 'all');
+  /** An operation in progress adds the conflict map's temporary node on top (not in the file view). */
+  const pending = $derived(graph.conflict ? { parents: [graph.conflict.ours, graph.conflict.theirs].filter((x): x is string => !!x) } : undefined);
   const view = $derived<GraphView | null>(
-    filter === 'all' ? { kind: 'all' } : filter === 'branch' ? { kind: 'branch' } : graph.activeFile ? { kind: 'file', path: graph.activeFile } : null,
+    filter === 'all'
+      ? { kind: 'all', pending }
+      : filter === 'branch'
+        ? { kind: 'branch', pending }
+        : graph.activeFile
+          ? { kind: 'file', path: graph.activeFile }
+          : null,
   );
   /** Rows in the current view. */
   let total = $state(0);
@@ -306,6 +315,11 @@
       rpc.on('graph.openFiles', (o) => {
         if (o.root === graph.root) openFiles = new Set(o.paths);
       }),
+      rpc.on('graph.conflict', (c) => {
+        if (c.root !== graph.root) return;
+        graph = { ...graph, conflict: c.conflict };
+        if (!c.conflict && selected === PENDING_SHA) selected = null;
+      }),
       rpc.on('graph.select', (sel) => {
         if (sel.root === graph.root) void jumpTo(sel.sha);
       }),
@@ -354,7 +368,7 @@
       scrollTop,
       first,
       rows: visible.map((r) => (r < total ? (cache.row(r)?.graph ?? null) : null)),
-      theme: { lanes: theme.lanes, surface: theme.surface, contrastBorder: theme.contrastBorder, head: theme.head },
+      theme: { lanes: theme.lanes, surface: theme.surface, contrastBorder: theme.contrastBorder, head: theme.head, conflict: theme.conflict },
       headRow: refs?.head.row ?? -1,
       pulseRow: syncRow,
       pulse,
@@ -553,7 +567,14 @@
             data-vscode-context={row ? menuContext(row.commit) : undefined}
           >
             <span class="lanes" style:width="{graphW}px"></span>
-            {#if row}
+            {#if row && row.commit.sha === PENDING_SHA && graph.conflict}
+              {@const c = graph.conflict}
+              <span class="ref conflict"><i class="codicon codicon-git-merge"></i>{c.op}{c.rebase ? ` ${c.rebase.step}/${c.rebase.total}` : ''}</span>
+              <span class="subject pending">
+                {c.op === 'merge' ? `Merging ${c.theirsLabel} into ${c.oursLabel}` : c.op === 'rebase' ? `Rebasing ${c.theirsLabel} onto ${c.oursLabel}` : `${c.op} of ${c.theirsLabel}`}:
+                {c.hunksTotal - c.hunksResolved ? `${c.hunksTotal - c.hunksResolved} of ${c.hunksTotal} conflicts left` : 'all conflicts resolved'}
+              </span>
+            {:else if row}
               {#if r === detachedRow}<span class="ref head" title="HEAD is detached at this commit">HEAD</span>{/if}
               {#each refsByRow.get(r) ?? [] as ref (ref.kind + ref.name)}
                 <span
@@ -584,7 +605,9 @@
     <div style:height="{Math.max(0, rowCount * ROW_HEIGHT - viewHeight)}px"></div>
   </div>
  </div>
-  {#if selected && graph.root}
+  {#if selected === PENDING_SHA && graph.root && graph.conflict}
+    <ConflictMap {rpc} root={graph.root} conflict={graph.conflict} onClose={() => (selected = null)} />
+  {:else if selected && graph.root}
     <Details
       {rpc}
       root={graph.root}
@@ -730,6 +753,9 @@
   }
   .row:hover {
     background: var(--gvx-hover);
+  }
+  .subject.pending {
+    font-style: italic;
   }
   .row.boundary {
     color: var(--gvx-text-muted);

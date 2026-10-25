@@ -3,13 +3,14 @@
  * A view is a LogTable of its own (rows in the index's topological order, parents rewritten to the
  * nearest commit in the view) with its own layout, rebuilt when the index or HEAD changes.
  */
-import type { GraphView, RepoInfo } from '@gvx/protocol';
+import { PENDING_SHA, type GraphView, type RepoInfo } from '@gvx/protocol';
 import type { Git } from './git';
 import { GraphLayout } from './graphLayout';
 import { LogTable } from './logTable';
 import { readHeadSha, resolveRepo } from './repo';
 
-export const viewKey = (v: GraphView | undefined): string => (!v || v.kind === 'all' ? 'all' : v.kind === 'branch' ? 'branch' : `file:${v.path}`);
+export const viewKey = (v: GraphView | undefined): string =>
+  (!v || v.kind === 'all' ? 'all' : v.kind === 'branch' ? 'branch' : `file:${v.path}`) + (v?.pending ? `+pending:${v.pending.parents.join(',')}` : '');
 
 interface Built {
   base: LogTable;
@@ -65,6 +66,12 @@ export class ViewStore {
         rewrite.set(row, ps.filter(Boolean).map((p) => base.rowOf(p) ?? -1).filter((r) => r >= 0));
       }
       table = base.subset(keep, rewrite);
+    }
+    if (view?.pending?.parents.length) {
+      // Conflict map: a temporary node on top whose parents are the two sides (concat links them to their rows).
+      const head = new LogTable();
+      head.append({ sha: PENDING_SHA, parents: view.pending.parents, author: '', email: '', time: Math.floor(Date.now() / 1000), subject: '' });
+      table = LogTable.concat(head.finalize(), table);
     }
     const layout = new GraphLayout(table);
     if (table.count <= EAGER_LAYOUT_ROWS) layout.layoutTo(table.count - 1);

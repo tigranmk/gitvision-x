@@ -74,6 +74,8 @@ export interface Harness {
   diffsOpened: GraphHostMethods['graph.openDiff']['params'][];
   /** Branch drops the webview sent. */
   drops: GraphHostMethods['graph.dropBranch']['params'][];
+  /** Conflict map actions the webview asked for ("open:path", "keep:path", "run:continue"…). */
+  conflictCalls: string[];
   /** Commits the webview asked to open (Enter). */
   commitsOpened: string[];
   /** Roots the webview asked to fetch more history for. */
@@ -99,6 +101,8 @@ export interface OpenOptions {
   csp?: (csp: string) => string;
   /** Index storage to use (reuse one to open the index from disk); a fresh temp dir by default. */
   storageDir?: string;
+  /** Graph only: an operation in progress to report (the conflict map). */
+  conflict?: (root: string) => GraphState['conflict'];
 }
 
 export interface Bridge<Local extends MethodMap, Push extends EventMap> {
@@ -214,12 +218,13 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
   const syncStarted = performance.now();
   const stats = await pool.request('index.sync', { root, storageDir: storage }, { affinity: root });
   const syncMs = performance.now() - syncStarted;
-  const state: GraphState = { root, total: stats.commitCount, userEmail: 'dev0@example.com', sync: null, activeFile: null };
+  const state: GraphState = { root, total: stats.commitCount, userEmail: 'dev0@example.com', sync: null, activeFile: null, conflict: opts.conflict?.(root) ?? null };
   const clipboard: string[] = [];
   const diffsOpened: Harness['diffsOpened'] = [];
   const drops: Harness['drops'] = [];
   const fetches: string[] = [];
   const commitsOpened: string[] = [];
+  const conflictCalls: string[] = [];
   const openFiles: string[] = [];
   const { host, requests, cspViolations, pageErrors } = await loadWebview<GraphHostMethods, GraphHostEvents>(page, 'graph', (host) =>
     registerGraphMethods(host, {
@@ -232,6 +237,8 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     dropBranch: async (a) => void drops.push(a),
     fetchMore: async (r) => void fetches.push(r),
       openCommit: async (_r, sha) => void commitsOpened.push(sha),
+      conflictFile: async (_r, p, action) => void conflictCalls.push(`${action}:${p}`),
+      conflictRun: async (_r, choice) => void conflictCalls.push(`run:${choice}`),
     }),
     opts,
   );
@@ -248,6 +255,7 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     drops,
     fetches,
     commitsOpened,
+    conflictCalls,
     openFiles,
     requests,
     cspViolations,

@@ -8,6 +8,7 @@ import {
   LANE_COLORS,
   ROW_BOUNDARY,
   ROW_MERGE,
+  ROW_PENDING,
   edgeFrom,
   edgeKind,
   edgeTo,
@@ -32,6 +33,8 @@ export interface DrawTheme {
   surface: string;
   contrastBorder: string | null;
   head: string;
+  /** The conflict map's temporary node. */
+  conflict: string;
 }
 
 export interface DrawInput {
@@ -132,6 +135,20 @@ export function draw(ctx: Ctx, d: DrawInput): void {
       ctx.fillStyle = d.pulseColor;
       ctx.fill();
       ctx.globalAlpha = 1;
+    }
+    if (row.flags & ROW_PENDING) {
+      // Not a commit yet: a dashed ring in the conflict colour.
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, NODE_RADIUS + 1, 0, Math.PI * 2);
+      ctx.fillStyle = d.theme.surface;
+      ctx.fill();
+      ctx.setLineDash([2, 2]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = d.theme.conflict;
+      ctx.stroke();
+      ctx.restore();
+      continue;
     }
     ctx.beginPath();
     ctx.arc(x, y, NODE_RADIUS, 0, Math.PI * 2);

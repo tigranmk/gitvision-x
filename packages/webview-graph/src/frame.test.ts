@@ -15,7 +15,7 @@ describe('frame packing (D6)', () => {
         null,
         { lane: 3, flags: 1, edges: new Uint32Array([7]) },
       ],
-      theme: { lanes: ['#000'], surface: '#111', contrastBorder: null, head: '#222' },
+      theme: { lanes: ['#000'], surface: '#111', contrastBorder: null, head: '#222', conflict: '#333' },
       headRow: -1,
       pulseRow: 2,
       pulse: 0.5,
