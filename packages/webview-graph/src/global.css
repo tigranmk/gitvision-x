@@ -29,3 +29,11 @@ body.vscode-high-contrast .ref,
 body.vscode-high-contrast-light .ref {
   border-color: var(--gvx-contrast-border);
 }
+
+.ref[draggable='true'] {
+  cursor: grab;
+}
+.ref.drop-target {
+  outline: 2px solid var(--gvx-focus);
+  outline-offset: 1px;
+}

@@ -348,6 +348,48 @@
     if (sha) selected = sha;
   }
 
+  /** What VS Code passes to the commit context menu's commands (webview/context in package.json). */
+  const menuContext = (c: { sha: string; subject: string; parents: number }) =>
+    JSON.stringify({ webviewSection: 'commit', root: graph.root, sha: c.sha, subject: c.subject, parents: c.parents, preventDefaultContextMenuItems: true });
+
+  // ---- drag a branch chip onto another: merge or rebase (the host asks which, and confirms) ----
+  const REF_MIME = 'application/x-gitvision-ref';
+  type DragRef = { name: string; kind: 'branch' | 'remote' };
+  let dragging: DragRef | null = null;
+  let dropTarget = $state<string | null>(null);
+  const refAt = (e: Event): DragRef | null => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>('.ref[data-ref-name]');
+    return el ? { name: el.dataset.refName!, kind: el.dataset.refKind as DragRef['kind'] } : null;
+  };
+  function ondragstart(e: DragEvent) {
+    dragging = refAt(e);
+    if (!dragging || !e.dataTransfer) return;
+    e.dataTransfer.setData(REF_MIME, JSON.stringify(dragging));
+    e.dataTransfer.effectAllowed = 'move';
+  }
+  function ondragover(e: DragEvent) {
+    const target = refAt(e);
+    if (!dragging || !target || target.name === dragging.name) {
+      dropTarget = null;
+      return;
+    }
+    e.preventDefault();
+    dropTarget = target.name;
+  }
+  function ondrop(e: DragEvent) {
+    const target = refAt(e);
+    const source = dragging;
+    dragging = null;
+    dropTarget = null;
+    if (!source || !target || target.name === source.name || !graph.root) return;
+    e.preventDefault();
+    void rpc.request('graph.dropBranch', { root: graph.root, source, target });
+  }
+  function ondragend() {
+    dragging = null;
+    dropTarget = null;
+  }
+
   const shortSha = (sha: string) => sha.slice(0, 7);
   const who = (name: string, mail: string) =>
     graph.userEmail && mail.toLowerCase() === graph.userEmail.toLowerCase() ? 'You' : name;
@@ -395,7 +437,18 @@
     <div class="viewport" style:height="{viewHeight}px">
       <canvas bind:this={canvas} style:width="{graphW}px" style:height="{viewHeight}px"></canvas>
       <!-- svelte-ignore a11y_click_events_have_key_events (keyboard navigation is on the listbox: ↑/↓, Enter, Space) -->
-      <div class="rows" role="listbox" aria-label="Commits" tabindex="0" bind:this={listbox} onclick={select} style:transform="translateY({-(scrollTop % ROW_HEIGHT)}px)">
+      <div
+        class="rows"
+        role="listbox"
+        aria-label="Commits"
+        tabindex="0"
+        bind:this={listbox}
+        onclick={select}
+        oncontextmenu={select}
+        {ondragstart}
+        {ondragover}
+        {ondrop}
+        {ondragend} style:transform="translateY({-(scrollTop % ROW_HEIGHT)}px)">
         {#each visible as r (r)}
           {@const row = rowAt(r, version)}
           <div
@@ -409,6 +462,7 @@
             class:match={matchSet.has(r)}
             style:transform="translateY({(r - first) * ROW_HEIGHT}px)"
             data-sha={row?.commit.sha}
+            data-vscode-context={row ? menuContext(row.commit) : undefined}
           >
             <span class="lanes" style:width="{graphW}px"></span>
             {#if row}
@@ -417,6 +471,10 @@
                 <span
                   class="ref {ref.kind}"
                   class:head={isHead(ref)}
+                  class:drop-target={dropTarget === ref.name}
+                  draggable={ref.kind !== 'tag'}
+                  data-ref-name={ref.kind !== 'tag' ? ref.name : undefined}
+                  data-ref-kind={ref.kind}
                   title="{ref.kind === 'tag' ? 'Tag' : ref.kind === 'remote' ? 'Remote branch' : isHead(ref) ? 'Current branch (HEAD)' : 'Branch'} {ref.name}"
                   style:--chip-color={theme?.lanes[row.graph.lane % LANE_COLORS]}
                 ><i class="codicon codicon-{ref.kind === 'tag' ? 'tag' : ref.kind === 'remote' ? 'cloud' : 'git-branch'}"></i>{ref.name}</span>

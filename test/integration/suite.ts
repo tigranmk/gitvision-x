@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { realpathSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 
@@ -289,6 +289,104 @@ export function defineSuite(): void {
       );
       assert.ok(tab.input instanceof vscode.TabInputWebview);
       await vscode.window.tabGroups.close(tab);
+    });
+  });
+  describe('F2 — graph actions (context menu, drag and drop)', () => {
+    const answer = (...a: (string | undefined)[]) => vscode.commands.executeCommand('gitvision._test.answer', ...a);
+    const sha = (rev: string) => git('rev-parse', rev).trim();
+    const ctx = (rev: string) => ({
+      webviewSection: 'commit',
+      root: realRoot,
+      sha: sha(rev),
+      subject: git('log', '-1', '--format=%s', rev).trim(),
+      parents: git('log', '-1', '--format=%P', rev).trim().split(' ').length,
+    });
+    const lastWrite = async () => (await vscode.commands.executeCommand<{ lastWrite?: { op: { kind: string }; code?: string } }>('gitvision._test.state')).lastWrite;
+
+    before(() => {
+      git('reset', '-q', '--hard');
+      git('checkout', '-q', 'main');
+    });
+
+    it('creates a branch and a tag at a commit', async () => {
+      await answer('graph-test', 'Create');
+      await vscode.commands.executeCommand('gitvision.graph.createBranch', ctx('HEAD~1'));
+      assert.equal(sha('graph-test'), sha('HEAD~1'));
+      await answer('v-test', 'Release notes');
+      await vscode.commands.executeCommand('gitvision.graph.createTag', ctx('HEAD~1'));
+      assert.equal(git('cat-file', '-t', 'v-test').trim(), 'tag');
+      assert.equal(sha('v-test^{commit}'), sha('HEAD~1'));
+    });
+
+    it('does nothing when a confirmation is declined', async () => {
+      const head = sha('HEAD');
+      writeFileSync(path.join(workspace, 'keep.txt'), 'uncommitted\n');
+      await answer('Hard', undefined); // pick Hard, then dismiss the modal
+      await vscode.commands.executeCommand('gitvision.graph.reset', ctx('HEAD~1'));
+      assert.equal(sha('HEAD'), head);
+      assert.equal(readFileSync(path.join(workspace, 'keep.txt'), 'utf8'), 'uncommitted\n');
+      const prompts = await vscode.commands.executeCommand<string[]>('gitvision._test.prompts');
+      assert.ok(prompts.some((p) => /^Hard reset main to [0-9a-f]{7}\?$/.test(p)), prompts.join(' | '));
+      rmSync(path.join(workspace, 'keep.txt'));
+    });
+
+    it('reverts and resets after confirmation', async () => {
+      const head = sha('HEAD');
+      await answer('Revert');
+      await vscode.commands.executeCommand('gitvision.graph.revert', ctx('HEAD'));
+      assert.match(git('log', '-1', '--format=%s').trim(), /^Revert /);
+      await answer('Mixed', 'Reset');
+      await vscode.commands.executeCommand('gitvision.graph.reset', ctx(head));
+      assert.equal(sha('HEAD'), head);
+    });
+
+    it('checks out a commit detached, then a branch', async () => {
+      // HEAD~1 has the graph-test branch on it, so checkout first asks which: pick the detached option.
+      await answer(`Detached HEAD at ${sha('HEAD~1').slice(0, 7)}`, 'Check Out');
+      await vscode.commands.executeCommand('gitvision.graph.checkout', ctx('HEAD~1'));
+      assert.equal(git('branch', '--show-current').trim(), '');
+      await answer('main');
+      await vscode.commands.executeCommand('gitvision.graph.checkout', ctx('main'));
+      assert.equal(git('branch', '--show-current').trim(), 'main');
+    });
+
+    it('merges a branch dropped onto the current one', async () => {
+      git('checkout', '-q', '-b', 'drop-src');
+      writeFileSync(path.join(workspace, 'dropped.txt'), 'x\n');
+      git('add', 'dropped.txt');
+      git('commit', '-qm', 'drop source');
+      git('checkout', '-q', 'main');
+      await answer('Merge drop-src into main', 'Merge');
+      await vscode.commands.executeCommand('gitvision._test.dropBranch', {
+        root: realRoot,
+        source: { name: 'drop-src', kind: 'branch' },
+        target: { name: 'main', kind: 'branch' },
+      });
+      assert.equal(sha('main'), sha('drop-src'));
+    });
+
+    it('compares a commit with HEAD in the multi-file diff editor', async () => {
+      await vscode.commands.executeCommand('gitvision.graph.compareWithHead', ctx('HEAD~3'));
+      const tab = await waitFor('changes editor', async () =>
+        vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((t) => t.label.includes('↔ HEAD')),
+      );
+      assert.match(tab.label, /^[0-9a-f]{7} ↔ HEAD \(\d+ files?\)$/);
+      await vscode.window.tabGroups.close(tab);
+    });
+
+    it('reports a cherry-pick that stops with conflicts', async () => {
+      git('checkout', '-q', '-b', 'conflict-src', 'HEAD~1');
+      writeFileSync(path.join(workspace, 'README.md'), 'theirs\n');
+      git('commit', '-qam', 'theirs');
+      git('checkout', '-q', 'main');
+      writeFileSync(path.join(workspace, 'README.md'), 'ours\n');
+      git('commit', '-qam', 'ours');
+      await answer('Cherry-pick');
+      await vscode.commands.executeCommand('gitvision.graph.cherryPick', ctx('conflict-src'));
+      const w = await lastWrite();
+      assert.equal(w?.op.kind, 'cherryPick');
+      assert.equal(w?.code, 'conflict');
+      git('cherry-pick', '--abort');
     });
   });
 }

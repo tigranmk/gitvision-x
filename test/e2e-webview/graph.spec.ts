@@ -263,3 +263,19 @@ test('micro-diff previews the selected or hovered file; double-click or Enter op
   await expect(diff.locator('h4')).toHaveText('README.md');
   await expect(diff.locator('tr.add')).toHaveCount(1);
 });
+
+test('rows carry the context-menu data; dragging a branch onto another asks the host to merge or rebase', async ({ page }) => {
+  h = await openGraph(page, 'small');
+  const merge = page.locator('[role=option]').first();
+  await expect(merge.locator('.subject')).toHaveText("Merge branch 'feature'");
+  const ctx = JSON.parse((await merge.getAttribute('data-vscode-context'))!);
+  expect(ctx).toMatchObject({ webviewSection: 'commit', root: h.root, subject: "Merge branch 'feature'", parents: 2, preventDefaultContextMenuItems: true });
+  expect(ctx.sha).toMatch(/^[0-9a-f]{40}$/);
+  // Right-click selects the row the menu is for.
+  await page.locator('[role=option]', { hasText: 'main work' }).click({ button: 'right' });
+  await expect(page.locator('[role=option][aria-selected=true] .subject')).toHaveText('main work');
+
+  await page.locator('.ref', { hasText: 'feature' }).dragTo(page.locator('.ref', { hasText: 'main' }));
+  await expect.poll(() => h!.drops.length).toBe(1);
+  expect(h.drops[0]).toEqual({ root: h.root, source: { name: 'feature', kind: 'branch' }, target: { name: 'main', kind: 'branch' } });
+});

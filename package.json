@@ -90,6 +90,46 @@
         "title": "Open Graph Beside",
         "category": "GitVision",
         "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "gitvision.graph.checkout",
+        "title": "Check Out…",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.graph.createBranch",
+        "title": "Create Branch…",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.graph.createTag",
+        "title": "Create Tag…",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.graph.cherryPick",
+        "title": "Cherry-Pick…",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.graph.revert",
+        "title": "Revert…",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.graph.reset",
+        "title": "Reset Current Branch to Here…",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.graph.compareWithHead",
+        "title": "Compare with HEAD",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.graph.copySha",
+        "title": "Copy Commit SHA",
+        "category": "GitVision"
       }
     ],
     "menus": {
@@ -101,6 +141,38 @@
         {
           "command": "gitvision.blame.copySha",
           "when": "false"
+        },
+        {
+          "command": "gitvision.graph.checkout",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.graph.createBranch",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.graph.createTag",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.graph.cherryPick",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.graph.revert",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.graph.reset",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.graph.compareWithHead",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.graph.copySha",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -108,6 +180,48 @@
           "command": "gitvision.graph.openBeside",
           "when": "view == gitvision.graph",
           "group": "navigation"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "gitvision.graph.checkout",
+          "when": "(webviewId == 'gitvision.graph' || webviewId == 'gitvision.graphPanel') && webviewSection == 'commit'",
+          "group": "1_checkout@1"
+        },
+        {
+          "command": "gitvision.graph.createBranch",
+          "when": "(webviewId == 'gitvision.graph' || webviewId == 'gitvision.graphPanel') && webviewSection == 'commit'",
+          "group": "1_checkout@2"
+        },
+        {
+          "command": "gitvision.graph.createTag",
+          "when": "(webviewId == 'gitvision.graph' || webviewId == 'gitvision.graphPanel') && webviewSection == 'commit'",
+          "group": "1_checkout@3"
+        },
+        {
+          "command": "gitvision.graph.cherryPick",
+          "when": "(webviewId == 'gitvision.graph' || webviewId == 'gitvision.graphPanel') && webviewSection == 'commit'",
+          "group": "2_apply@1"
+        },
+        {
+          "command": "gitvision.graph.revert",
+          "when": "(webviewId == 'gitvision.graph' || webviewId == 'gitvision.graphPanel') && webviewSection == 'commit'",
+          "group": "2_apply@2"
+        },
+        {
+          "command": "gitvision.graph.reset",
+          "when": "(webviewId == 'gitvision.graph' || webviewId == 'gitvision.graphPanel') && webviewSection == 'commit'",
+          "group": "2_apply@3"
+        },
+        {
+          "command": "gitvision.graph.compareWithHead",
+          "when": "(webviewId == 'gitvision.graph' || webviewId == 'gitvision.graphPanel') && webviewSection == 'commit'",
+          "group": "3_compare@1"
+        },
+        {
+          "command": "gitvision.graph.copySha",
+          "when": "(webviewId == 'gitvision.graph' || webviewId == 'gitvision.graphPanel') && webviewSection == 'commit'",
+          "group": "4_copy@1"
         }
       ]
     },

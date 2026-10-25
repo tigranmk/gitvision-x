@@ -15,6 +15,7 @@ import { IDLE_MS } from '../blame/blameController';
 import type { RepoRegistry } from '../repoRegistry';
 import type { SelectionStore } from '../selectionStore';
 import { webviewHtml } from './html';
+import type { GraphActions } from './actions';
 import { registerGraphMethods, type GraphRpc } from './methods';
 
 export const GRAPH_VIEW_ID = 'gitvision.graph';
@@ -46,6 +47,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     private readonly selection: SelectionStore,
     private readonly blame: () => BlameController | undefined,
     private readonly gitApi: () => GitAPI | undefined,
+    private readonly actions: GraphActions,
   ) {
     this.shown = this.pickRoot();
     this.disposables.push(
@@ -135,6 +137,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       openFiles: (root) => this.openFiles(root),
       writeClipboard: (text) => vscode.env.clipboard.writeText(text),
       openDiff: (a) => this.openDiff(a),
+      dropBranch: (a) => this.actions.dropBranch(a),
     });
     this.clients.add(rpc);
     owner.onDidDispose(() => {

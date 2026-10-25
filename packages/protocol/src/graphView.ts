@@ -58,6 +58,11 @@ export type GraphHostMethods = {
   /** Rows of commits (-1 when not in the graph), e.g. to jump to a parent. */
   'graph.rows': MethodSpec<{ root: string; view?: GraphView; shas: string[] }, number[]>;
   'clipboard.write': MethodSpec<{ text: string }, null>;
+  /** A branch chip dropped on another: the host offers merge or rebase and confirms before running it. */
+  'graph.dropBranch': MethodSpec<
+    { root: string; source: { name: string; kind: 'branch' | 'remote' }; target: { name: string; kind: 'branch' | 'remote' } },
+    null
+  >;
   'graph.fileDiff': MethodSpec<{ root: string; sha: string; path: string; oldPath?: string }, MicroDiff>;
   /** Opens VS Code's diff editor for a file of a commit, against its first parent. */
   'graph.openDiff': MethodSpec<{ root: string; sha: string; parent: string | null; file: Pick<CommitFile, 'path' | 'oldPath' | 'status'> }, null>;

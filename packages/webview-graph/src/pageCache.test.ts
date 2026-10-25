@@ -7,7 +7,7 @@ function fakePage(start: number, count: number, width = 3): GraphPage {
     start,
     total: 10_000,
     width,
-    commits: Array.from({ length: count }, (_, i) => ({ sha: `sha${start + i}`, subject: `c${start + i}`, author: 'A', authorMail: 'a@x', time: 0 })),
+    commits: Array.from({ length: count }, (_, i) => ({ sha: `sha${start + i}`, parents: 1, subject: `c${start + i}`, author: 'A', authorMail: 'a@x', time: 0 })),
     nodeLane: new Uint16Array(count),
     flags: new Uint8Array(count),
     edgeStart: new Uint32Array(count + 1),

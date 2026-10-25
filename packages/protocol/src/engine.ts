@@ -90,6 +90,8 @@ export interface LineHistoryEntry {
 
 export interface GraphCommit {
   sha: string;
+  /** Parents in this view (merges have 2+). */
+  parents: number;
   subject: string;
   author: string;
   authorMail: string;
@@ -178,6 +180,28 @@ export interface MicroDiff {
   tooLarge: boolean;
 }
 
+/** Git operations the graph can run. Each one is confirmed by the user before it is sent. */
+export type RepoWriteOp =
+  | { kind: 'checkout'; branch: string }
+  | { kind: 'checkoutDetached'; sha: string }
+  | { kind: 'branch'; name: string; sha: string; checkout?: boolean }
+  | { kind: 'tag'; name: string; sha: string; message?: string }
+  | { kind: 'cherryPick'; sha: string; mainline?: number }
+  | { kind: 'revert'; sha: string; mainline?: number }
+  | { kind: 'reset'; sha: string; mode: 'soft' | 'mixed' | 'hard' }
+  /** Merges `branch` into the branch checked out. */
+  | { kind: 'merge'; branch: string }
+  /** Rebases `branch` onto `upstream` (checks `branch` out). */
+  | { kind: 'rebase'; upstream: string; branch: string };
+
+/**
+ * Errors from repo.write carry code 'conflict' (the operation stopped with conflicts to resolve),
+ * 'invalid' (a bad name or argument; nothing ran) or 'git' (git refused; the message is its stderr).
+ */
+export interface RepoWriteResult {
+  output: string;
+}
+
 /** Files above this many lines are blamed on demand only (spec F1). */
 export const AUTO_BLAME_MAX_LINES = 20_000;
 
@@ -206,6 +230,9 @@ export type EngineMethods = {
   'commit.details': MethodSpec<{ root: string; sha: string }, CommitDetails>;
   /** Side-by-side diff of one file of a commit against its first parent, at most `maxRows` rows (default 40). */
   'commit.fileDiff': MethodSpec<{ root: string; sha: string; path: string; oldPath?: string; maxRows?: number }, MicroDiff>;
+  'repo.write': MethodSpec<{ root: string; op: RepoWriteOp }, RepoWriteResult>;
+  /** Files changed between two commits (`from` → `to`), like a commit's file list. */
+  'commit.compare': MethodSpec<{ root: string; from: string; to: string }, CommitFile[]>;
   'repo.refs': MethodSpec<{ root: string }, RepoRefs>;
   'index.contains': MethodSpec<{ root: string; shas: string[] }, boolean[] | null>;
   'repo.commitGraph': MethodSpec<{ root: string }, CommitGraphStatus>;

@@ -16,6 +16,7 @@ export interface GraphMethodDeps {
   openFiles(root: string): string[];
   writeClipboard(text: string): PromiseLike<void>;
   openDiff(args: GraphHostMethods['graph.openDiff']['params']): PromiseLike<void>;
+  dropBranch(args: GraphHostMethods['graph.dropBranch']['params']): PromiseLike<void>;
 }
 
 export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
@@ -54,6 +55,11 @@ export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
   rpc.handle('graph.openDiff', async (args) => {
     current(args.root);
     await d.openDiff(args);
+    return null;
+  });
+  rpc.handle('graph.dropBranch', async (args) => {
+    current(args.root);
+    await d.dropBranch(args);
     return null;
   });
   rpc.handle('clipboard.write', async ({ text }) => {

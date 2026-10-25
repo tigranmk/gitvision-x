@@ -5,7 +5,8 @@ import { commitGraphStatus, writeCommitGraph } from './commitGraph';
 import { Git } from './git';
 import { ViewStore, searchTable } from './graphViews';
 import { IndexStore } from './indexStore';
-import { commitDetails } from './commitDetails';
+import { commitDetails, parseRawNumstat } from './commitDetails';
+import { repoWrite } from './repoWrite';
 import { fileMicroDiff } from './microDiff';
 import { readRefs, resolveRepo } from './repo';
 
@@ -51,7 +52,7 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
     const commits = [];
     for (let r = p.start; r < p.start + p.nodeLane.length; r++) {
       const { name, email } = table.author(r);
-      commits.push({ sha: table.sha(r), subject: table.subject(r), author: name, authorMail: email, time: table.time(r) });
+      commits.push({ sha: table.sha(r), parents: table.parentCount(r), subject: table.subject(r), author: name, authorMail: email, time: table.time(r) });
     }
     const page = { ...p, total: table.count, commits };
     return withTransfer(page, [p.nodeLane.buffer, p.flags.buffer, p.edgeStart.buffer, p.edges.buffer] as ArrayBuffer[]);
@@ -78,6 +79,14 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
   rpc.handle('commit.fileDiff', ({ root, sha, path, oldPath, maxRows }, { signal }) =>
     fileMicroDiff(ready().git, root, sha, path, oldPath, maxRows, signal),
   );
+
+  rpc.handle('repo.write', ({ root, op }) => repoWrite(ready().git, root, op));
+
+  rpc.handle('commit.compare', async ({ root, from, to }, { signal }) => {
+    // Full ids only: anything else could be read as a diff-tree option.
+    if (![from, to].every((s) => /^[0-9a-f]{40}$/.test(s))) throw Object.assign(new Error('compare needs full commit ids'), { code: 'invalid' });
+    return parseRawNumstat(await ready().git.text(['diff-tree', '-r', '-z', '-M', '--raw', '--numstat', from, to], { cwd: root, signal }));
+  });
 
   rpc.handle('repo.refs', ({ root }, { signal }) => readRefs(ready().git, root, signal));
 

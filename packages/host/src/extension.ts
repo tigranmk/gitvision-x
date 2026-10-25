@@ -11,7 +11,9 @@ import { isFailure } from './blame/blameStore';
 import type { GitAPI, GitExtension, GitRepository } from './gitApi';
 import { registerCommitGraphOffer } from './commitGraphOffer';
 import { offerGitLensCoexistence } from './gitlens';
+import { GraphActions } from './graph/actions';
 import { GraphViews } from './graph/graphViews';
+import { enableTestAnswers, queueAnswers, shownPrompts } from './ui';
 import { RepoRegistry } from './repoRegistry';
 import { SelectionStore } from './selectionStore';
 
@@ -70,6 +72,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   let blame: BlameController | undefined;
   let graph: GraphViews | undefined;
+  let actions: GraphActions | undefined;
 
   // Discovery and blame run after activation returns.
   setTimeout(() => {
@@ -80,7 +83,9 @@ export function activate(context: vscode.ExtensionContext) {
       log.warn(`vscode.git API unavailable: ${(e as Error).message}`);
     }
     blame = new BlameController(context, pool, repos, selection, () => gitApi, log);
-    graph = new GraphViews(context.extensionUri, pool, repos, selection, () => blame, () => gitApi);
+    actions = new GraphActions(pool, repos, () => gitApi);
+    graph = new GraphViews(context.extensionUri, pool, repos, selection, () => blame, () => gitApi, actions);
+    context.subscriptions.push(actions);
     context.subscriptions.push(blame.store.onDidLoad(() => graph?.blameLoaded()));
     context.subscriptions.push(blame, graph, registerCommitGraphOffer(context, pool, repos, log));
     const tryOpen = (dir: string) => repos.open(dir).catch((e) => log.error(`Could not open ${dir}: ${(e as Error).message}`));
@@ -105,7 +110,11 @@ export function activate(context: vscode.ExtensionContext) {
   const activationMs = performance.now() - started;
 
   if (context.extensionMode === vscode.ExtensionMode.Test) {
+    enableTestAnswers();
     context.subscriptions.push(
+      vscode.commands.registerCommand('gitvision._test.answer', (...a: (string | undefined)[]) => queueAnswers(...a)),
+      vscode.commands.registerCommand('gitvision._test.prompts', () => shownPrompts.splice(0)),
+      vscode.commands.registerCommand('gitvision._test.dropBranch', (d: Parameters<GraphActions['dropBranch']>[0]) => actions?.dropBranch(d)),
       vscode.commands.registerCommand('gitvision._test.state', () => ({
         activationMs,
         workersStarted: pool.started,
@@ -116,6 +125,7 @@ export function activate(context: vscode.ExtensionContext) {
         graph: graph?.state(),
         graphSync: graph?.lastSync,
         graphLineage: graph?.lastLineage,
+        lastWrite: actions?.lastWrite,
       })),
       vscode.commands.registerCommand('gitvision._test.blame', (root: string, file: string) =>
         pool.request('blame.file', { root, path: file }, { affinity: root }).then((b) => ({
