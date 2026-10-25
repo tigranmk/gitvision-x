@@ -83,6 +83,8 @@ export interface FileBlame {
 
 export class BlameStore implements vscode.Disposable {
   private readonly files = new Map<string, FileBlame>();
+  /** Files the user asked to blame despite the size limit; kept forced when an invalidation re-blames them. */
+  private readonly forced = new Set<string>();
   private readonly _onDidLoad = new vscode.EventEmitter<FileBlame>();
   private readonly _onDidProgress = new vscode.EventEmitter<FileBlame>();
   /** A file's blame finished loading (or failed). */
@@ -104,6 +106,8 @@ export class BlameStore implements vscode.Disposable {
    */
   ensure(doc: vscode.TextDocument, opts: { force?: boolean; refresh?: boolean } = {}): FileBlame | undefined {
     const key = doc.uri.toString();
+    if (opts.force) this.forced.add(key);
+    opts = { ...opts, force: opts.force || this.forced.has(key) };
     const existing = this.files.get(key);
     const failure = isFailure(existing?.outcome) ? existing.outcome : undefined;
     const retryTooLarge = opts.force && failure?.code === 'too-large';
@@ -217,6 +221,20 @@ export class BlameStore implements vscode.Disposable {
     const key = doc.uri.toString();
     this.files.get(key)?.controller.abort();
     this.files.delete(key);
+    this.forced.delete(key);
+  }
+
+  /**
+   * Waits until the document's blame has settled and its line map for the current version is known.
+   * Resolves false when there is nothing to wait for (not in a repo, blame failed, or superseded).
+   */
+  async ready(doc: vscode.TextDocument): Promise<boolean> {
+    const entry = this.ensure(doc);
+    if (!entry) return false;
+    const outcome = await entry.promise;
+    if (isFailure(outcome) || this.files.get(entry.key) !== entry) return false;
+    await Promise.resolve(this.mapFor(entry, doc)).catch(() => {});
+    return true;
   }
 
   /** HEAD or refs moved: blame of HEAD may have changed for every file of the repo. */

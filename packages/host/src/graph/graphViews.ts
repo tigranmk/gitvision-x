@@ -31,6 +31,8 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
   private shown: string | null = null;
   private panel: vscode.WebviewPanel | undefined;
   private sync: GraphSync | null = null;
+  /** Document (uri@version) whose blame the cursor sync last waited for. */
+  private waitedFor: string | null = null;
   private syncSeq = 0;
   /** Cursor line (file + HEAD line) the current sync and lineage belong to. */
   private syncKey: string | null = null;
@@ -174,6 +176,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     // Rows shift when the table is replaced: drop the sync, push the reset, then sync again.
     this.sync = null;
     this.syncKey = null;
+    this.waitedFor = null;
     this.cancelLineage();
     const state = this.state();
     for (const c of this.clients) c.emit('graph.reset', state);
@@ -191,7 +194,22 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     if (!editor || !root) return;
     const line = editor.selection.active.line;
     const c = this.blame()?.lineCommit(editor, line);
-    if (c === undefined) return; // not known without a round trip; the ghost text render re-triggers this
+    if (c === undefined) {
+      // Blame (or the line map) for this file is still loading, e.g. after a HEAD move re-blamed the repo.
+      // Try again once it settles; the ghost text cannot be relied on to re-trigger this, since it may show
+      // the same commit as before and so not change the selection.
+      // At most one wait per document version, and a retry only if blame actually settled: a document with
+      // no blame (outside a repo, failed) must not loop.
+      const doc = editor.document;
+      const key = `${doc.uri.toString()}@${doc.version}`;
+      if (this.waitedFor === key) return;
+      this.waitedFor = key;
+      void Promise.resolve(this.blame()?.store.ready(doc)).then((settled) => {
+        if (settled && this.waitedFor === key && vscode.window.activeTextEditor?.document === doc) this.syncToCursor();
+      });
+      return;
+    }
+    this.waitedFor = null; // answered: a later invalidation may wait again
     if (c === null || c.root !== root) {
       this.cancelLineage();
       this.syncKey = null;

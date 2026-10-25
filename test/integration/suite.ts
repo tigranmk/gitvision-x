@@ -231,6 +231,20 @@ export function defineSuite(): void {
       await vscode.commands.executeCommand('gitvision.blame.blameFile');
       moveTo(5);
       await rendered(5, / • huge file$/);
+
+      // A HEAD move re-blames the repo's files; the forced file must stay forced (it was dropped as too large).
+      const events = (await state()).refsEvents.length;
+      writeFileSync(path.join(workspace, 'other.txt'), 'x\n');
+      git('add', 'other.txt');
+      git('commit', '-qm', 'move HEAD');
+      await waitFor('HEAD move synced', async () => (await state()).refsEvents.length > events);
+      const after = await waitFor('re-blame of the forced file', async () => {
+        const r = await vscode.commands.executeCommand<{ known: boolean; failure: string | null }>('gitvision._test.fileBlame', editor.document.uri);
+        return r.known && r;
+      });
+      assert.equal(after.failure, null);
+      moveTo(6);
+      await rendered(6, / • huge file$/);
     });
   });
   describe('F2 — graph', () => {
@@ -267,6 +281,21 @@ export function defineSuite(): void {
       });
       console.log(`      lineage: ${lineage.shas.length} commits in ${lineage.ms.toFixed(0)} ms`);
       assert.ok(lineage.shas.includes(head), `the synced commit is part of its line lineage (${lineage.shas})`);
+
+      // A HEAD move resets the graph and re-blames the file while the cursor stays put: the sync comes back
+      // (new seq) without the cursor moving.
+      const before = (await state()).graphSync!.seq;
+      writeFileSync(path.join(workspace, 'other2.txt'), 'x\n');
+      git('add', 'other2.txt');
+      git('commit', '-qm', 'move HEAD again');
+      await waitFor('graph re-synced after HEAD move', async () => {
+        const s = await state();
+        return s.graphSync?.sha === head && s.graphSync.seq > before && s.graph?.sync?.sha === head && s;
+      });
+      await waitFor('lineage after HEAD move', async () => {
+        const s = await state();
+        return s.graphLineage?.seq === s.graphSync?.seq && s.graphLineage!.shas.includes(head);
+      });
 
       // Graph → editor: a modified file opens the diff editor; an added one opens its single revision.
       const tweak = git('log', '--format=%H', '--grep=^tweak app$').trim();
