@@ -249,9 +249,11 @@ export function defineSuite(): void {
       });
       console.log(`      cursor → graph sync ${synced.graphSync!.ms.toFixed(1)} ms`);
       assert.ok(synced.graphSync!.ms < 100, `stage 1 took ${synced.graphSync!.ms.toFixed(1)} ms`);
+      // A background sync may re-sync the cursor (new seq, old lineage cancelled): wait for the current one's.
       const lineage = await waitFor('lineage', async () => {
-        const l = (await state()).graphLineage;
-        return l?.seq === synced.graphSync!.seq && l;
+        const s = await state();
+        const l = s.graphLineage;
+        return s.graphSync?.sha === head && l?.seq === s.graphSync.seq && l;
       });
       console.log(`      lineage: ${lineage.shas.length} commits in ${lineage.ms.toFixed(0)} ms`);
       assert.ok(lineage.shas.includes(head), `the synced commit is part of its line lineage (${lineage.shas})`);

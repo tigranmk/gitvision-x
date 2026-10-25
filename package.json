@@ -297,7 +297,7 @@
     "fixtures": "node scripts/fixtures.mjs",
     "bench": "node bench/run.mjs",
     "package": "pnpm build:prod && vsce package --no-dependencies",
-    "test:webview": "pnpm build && node scripts/fixtures.mjs --only wide-100k && playwright test -c test/e2e-webview/playwright.config.ts"
+    "test:webview": "pnpm build && node scripts/fixtures.mjs --only wide-100k,small,worktrees,shallow && playwright test -c test/e2e-webview/playwright.config.ts"
   },
   "packageManager": "pnpm@10.33.2",
   "devDependencies": {

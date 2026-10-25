@@ -126,5 +126,9 @@ export function parseWorktrees(out: string, root: string): WorktreeHead[] {
   return result;
 }
 
-const samePath = (a: string, b: string) =>
-  process.platform === 'win32' || process.platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b;
+/** git prints forward slashes; a root may arrive with backslashes on Windows. */
+const samePath = (a: string, b: string) => {
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+  const [x, y] = [norm(a), norm(b)];
+  return process.platform === 'win32' || process.platform === 'darwin' ? x.toLowerCase() === y.toLowerCase() : x === y;
+};
