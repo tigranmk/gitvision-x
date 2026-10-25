@@ -20,6 +20,8 @@ describe('frame packing (D6)', () => {
       pulseRow: 2,
       pulse: 0.5,
       pulseColor: '#333',
+      lineage: new Int32Array([1, 3]),
+      lineageColor: '#444',
     };
     const out = unpack(pack(input));
     expect(out.rows.map((r) => r && { lane: r.lane, flags: r.flags, edges: [...r.edges] })).toEqual([

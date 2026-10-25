@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openGraph, pixelAt, type Harness } from './harness';
+import { openGraph, pixelAt, timeFromDelivery, type Harness } from './harness';
 
 let h: Harness | undefined;
 test.afterEach(async () => {
@@ -89,4 +89,40 @@ test('re-reads theme colours when VS Code switches theme', async ({ page }) => {
     document.body.classList.replace('vscode-dark', 'vscode-light');
   });
   await expect.poll(nodePixel).toEqual([0x00, 0x5f, 0xb8]);
+});
+
+test('editor → graph sync scrolls to the commit, pulses it and outlines the line lineage', async ({ page }) => {
+  h = await openGraph(page, 'wide-100k');
+  await expect(page.locator('[role=option] .subject').first()).toHaveText(/\S/);
+  const row = 42_000;
+
+  // Stage 1: the host pushes the cursor line's commit. Measured in the page: message in → the row is on
+  // screen, highlighted and filled in (its page fetched from the worker).
+  const elapsed = await timeFromDelivery(
+    page,
+    `document.querySelector('#row-${row}.synced .subject')?.textContent.length > 0`,
+  );
+  h.host.emit('graph.sync', { sha: 'x'.repeat(40), row, seq: 1 });
+  const stage1 = await elapsed();
+  console.log(`sync message → row visible, highlighted and filled: ${stage1.toFixed(1)} ms`);
+  expect(stage1).toBeLessThan(100 * (process.env.CI ? 2 : 1));
+  // Centred in the viewport.
+  const box = (await page.locator(`#row-${row}`).boundingBox())!;
+  expect(Math.abs(box.y + 11 - 300)).toBeLessThanOrEqual(22);
+
+  // Stage 2: lineage for a stale sync is ignored; the current one is outlined (a ring around the node).
+  h.host.emit('graph.lineage', { seq: 0, rows: [row + 1] });
+  h.host.emit('graph.lineage', { seq: 1, rows: [row, row + 3] });
+  await page.waitForTimeout(400); // let the pulse finish
+  await page.screenshot({ path: 'test-results/graph-sync.png' });
+
+  // A sync to the same commit again (new seq) does not scroll away if it is already visible.
+  const before = await page.locator('.scroller').evaluate((el) => el.scrollTop);
+  h.host.emit('graph.sync', { sha: 'x'.repeat(40), row: row + 2, seq: 2 });
+  await expect(page.locator(`#row-${row + 2}`)).toHaveClass(/synced/);
+  expect(await page.locator('.scroller').evaluate((el) => el.scrollTop)).toBe(before);
+
+  // Cursor on an uncommitted line: no synced row.
+  h.host.emit('graph.sync', null);
+  await expect(page.locator('.row.synced')).toHaveCount(0);
 });

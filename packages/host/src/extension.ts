@@ -80,7 +80,8 @@ export function activate(context: vscode.ExtensionContext) {
       log.warn(`vscode.git API unavailable: ${(e as Error).message}`);
     }
     blame = new BlameController(context, pool, repos, selection, () => gitApi, log);
-    graph = new GraphViews(context.extensionUri, pool, repos, selection);
+    graph = new GraphViews(context.extensionUri, pool, repos, selection, () => blame);
+    context.subscriptions.push(blame.store.onDidLoad(() => graph?.blameLoaded()));
     context.subscriptions.push(blame, graph, registerCommitGraphOffer(context, pool, repos, log));
     const tryOpen = (dir: string) => repos.open(dir).catch((e) => log.error(`Could not open ${dir}: ${(e as Error).message}`));
     if (gitApi) {
@@ -113,6 +114,8 @@ export function activate(context: vscode.ExtensionContext) {
         refsEvents,
         lastRender: blame?.lastRender,
         graph: graph?.state(),
+        graphSync: graph?.lastSync,
+        graphLineage: graph?.lastLineage,
       })),
       vscode.commands.registerCommand('gitvision._test.blame', (root: string, file: string) =>
         pool.request('blame.file', { root, path: file }, { affinity: root }).then((b) => ({

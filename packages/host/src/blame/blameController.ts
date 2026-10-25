@@ -235,6 +235,25 @@ export class BlameController implements vscode.Disposable {
     this.preloadHistory(entry, info);
   }
 
+  /**
+   * The commit that last touched `line` of the editor's document, answered synchronously from the blame
+   * cache (for editor → graph sync, which cannot wait for the ghost text's idle delay). null: the line is
+   * not committed (or blame failed); undefined: not known yet without a worker round trip.
+   */
+  lineCommit(editor: vscode.TextEditor, line: number): { sha: string; headLine: number; path: string; root: string } | null | undefined {
+    const entry = this.store.get(editor.document);
+    if (!entry) return undefined;
+    const view = this.store.view(entry);
+    if (!view) return undefined;
+    if (isFailure(view)) return null;
+    const map = this.store.mapFor(entry, editor.document);
+    if (map instanceof Promise) return undefined;
+    const info = lineBlame(view, map, line);
+    if (info.kind === 'pending') return undefined;
+    if (info.kind !== 'commit') return null;
+    return { sha: info.commit.sha, headLine: info.headLine, path: entry.path, root: entry.session.root };
+  }
+
   /** The cursor line is not attributed yet: render again as entries stream in. */
   private wait(token: number): void {
     this.waiting = token;

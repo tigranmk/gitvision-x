@@ -50,6 +50,9 @@ export interface DrawInput {
   pulseRow: number;
   pulse: number;
   pulseColor: string;
+  /** Rows in the synced line's history (stage 2), outlined; sorted ascending. */
+  lineage: Int32Array;
+  lineageColor: string;
 }
 
 export const laneX = (lane: number) => GRAPH_PAD + lane * LANE_WIDTH + LANE_WIDTH / 2;
@@ -114,6 +117,7 @@ export function draw(ctx: Ctx, d: DrawInput): void {
   ctx.restore();
 
   // Nodes on top of edges.
+  const inLineage = lineageSet(d.lineage, d.first, d.first + d.rows.length);
   for (let i = 0; i < d.rows.length; i++) {
     const row = d.rows[i];
     if (!row) continue;
@@ -147,6 +151,13 @@ export function draw(ctx: Ctx, d: DrawInput): void {
       ctx.strokeStyle = d.theme.contrastBorder;
       ctx.stroke();
     }
+    if (inLineage.has(r)) {
+      ctx.beginPath();
+      ctx.arc(x, y, NODE_RADIUS + 3, 0, Math.PI * 2);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = d.lineageColor;
+      ctx.stroke();
+    }
     if (r === d.headRow) {
       ctx.beginPath();
       ctx.arc(x, y, NODE_RADIUS + 2.5, 0, Math.PI * 2);
@@ -155,4 +166,18 @@ export function draw(ctx: Ctx, d: DrawInput): void {
       ctx.stroke();
     }
   }
+}
+
+/** Lineage rows within [lo, hi), by binary search into the sorted list. */
+function lineageSet(rows: Int32Array, lo: number, hi: number): Set<number> {
+  const out = new Set<number>();
+  let a = 0;
+  let b = rows.length;
+  while (a < b) {
+    const m = (a + b) >> 1;
+    if (rows[m]! < lo) a = m + 1;
+    else b = m;
+  }
+  for (let i = a; i < rows.length && rows[i]! < hi; i++) out.add(rows[i]!);
+  return out;
 }

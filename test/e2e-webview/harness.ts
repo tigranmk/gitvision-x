@@ -76,7 +76,7 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
   const storage = mkdtempSync(path.join(tmpdir(), 'gvx-e2e-'));
   const pool = new WorkerPool({ workerPath: path.join(ROOT, 'dist/worker.js'), gitPath: 'git' });
   const stats = await pool.request('index.sync', { root, storageDir: storage }, { affinity: root });
-  const state: GraphState = { root, total: stats.commitCount, userEmail: 'dev0@example.com' };
+  const state: GraphState = { root, total: stats.commitCount, userEmail: 'dev0@example.com', sync: null };
   const requests: Harness['requests'] = [];
   const cspViolations: string[] = [];
   const pageErrors: string[] = [];
@@ -124,7 +124,10 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
         getState: () => saved,
         setState: (s: unknown) => (saved = s),
       });
-      w.__gvxDeliver = (m: unknown) => window.dispatchEvent(new MessageEvent('message', { data: dec(m) }));
+      w.__gvxDeliver = (m: unknown) => {
+        w.__gvxDeliveredAt = performance.now();
+        window.dispatchEvent(new MessageEvent('message', { data: dec(m) }));
+      };
       document.addEventListener('securitypolicyviolation', (e) =>
         (w.__gvxCsp as (v: string) => void)(`${e.violatedDirective}: ${e.blockedURI}`),
       );
@@ -186,6 +189,22 @@ export async function pixelAt(page: Page, x: number, y: number): Promise<number[
     ctx.drawImage(img, 0, 0);
     return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3));
   }, png);
+}
+
+/**
+ * Starts watching for a condition in the page; the returned function resolves with the ms from the last
+ * host message's arrival in the page to the first frame the condition held (measured in the page).
+ */
+export async function timeFromDelivery(page: Page, condition: string): Promise<() => Promise<number>> {
+  await page.evaluate((cond) => {
+    const w = window as unknown as Record<string, unknown>;
+    const test = new Function(`return (${cond});`) as () => boolean;
+    w.__gvxWatch = new Promise<number>((resolve) => {
+      const tick = () => (test() ? resolve(performance.now() - (w.__gvxDeliveredAt as number)) : requestAnimationFrame(tick));
+      requestAnimationFrame(tick);
+    });
+  }, condition);
+  return () => page.evaluate(() => (window as unknown as { __gvxWatch: Promise<number> }).__gvxWatch);
 }
 
 function encode(v: unknown): unknown {

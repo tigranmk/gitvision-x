@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { relativeTime, type GraphState } from '@gvx/protocol';
+  import { relativeTime, type GraphState, type GraphSync } from '@gvx/protocol';
   import { readTheme, watchTheme, type CanvasTheme } from '@gvx/ui-tokens';
   import { graphWidth, ROW_HEIGHT } from './draw';
   import { createRenderer, type GraphRenderer } from './renderer';
@@ -9,7 +9,11 @@
 
   let { rpc }: { rpc: HostRpc } = $props();
 
-  let graph = $state<GraphState>({ root: null, total: 0, userEmail: null });
+  let graph = $state<GraphState>({ root: null, total: 0, userEmail: null, sync: null });
+  /** Editor → graph sync (D1): the commit of the cursor line, its pulse (0..1), and the line's lineage. */
+  let sync = $state.raw<GraphSync | null>(null);
+  let pulse = $state(1);
+  let lineage = $state.raw(new Int32Array(0));
   let error = $state<string | null>(null);
   let scrollTop = $state(0);
   let viewHeight = $state(0);
@@ -48,6 +52,38 @@
     lanes = 1;
     version++;
     if (repoChanged && scroller) scroller.scrollTop = scrollTop = 0;
+    applySync(next.sync);
+  }
+
+  function applySync(next: GraphSync | null) {
+    const changed = next?.seq !== sync?.seq;
+    sync = next;
+    if (!changed) return;
+    lineage = new Int32Array(0);
+    if (!next || next.row < 0) return;
+    // Scroll the commit into view (centred) only when it is outside the viewport.
+    if (scroller && (next.row < first || next.row > last - 1)) {
+      scroller.scrollTop = scrollTop = Math.max(0, next.row * ROW_HEIGHT - viewHeight / 2 + ROW_HEIGHT / 2);
+    }
+    startPulse();
+  }
+
+  let pulseFrame = 0;
+  function startPulse() {
+    cancelAnimationFrame(pulseFrame);
+    const ms = theme?.motionMs ?? 0;
+    if (ms === 0) {
+      pulse = 1; // prefers-reduced-motion: no animation; the row highlight still marks the commit
+      return;
+    }
+    // Two motion lengths: the ring grows and fades out.
+    const start = performance.now();
+    const tick = (now: number) => {
+      pulse = Math.min(1, (now - start) / (ms * 2));
+      if (pulse < 1) pulseFrame = requestAnimationFrame(tick);
+    };
+    pulse = 0;
+    pulseFrame = requestAnimationFrame(tick);
   }
 
   onMount(() => {
@@ -60,13 +96,20 @@
     });
     theme = readTheme();
     const unwatch = watchTheme((t) => (theme = t));
-    const off = rpc.on('graph.reset', apply);
+    const offs = [
+      rpc.on('graph.reset', apply),
+      rpc.on('graph.sync', applySync),
+      rpc.on('graph.lineage', (l) => {
+        if (l.seq === sync?.seq) lineage = Int32Array.from(l.rows).sort();
+      }),
+    ];
     rpc.request('graph.state', {}).then(apply, (e) => (error = (e as Error).message));
     const ro = new ResizeObserver(() => (viewHeight = scroller.clientHeight));
     ro.observe(scroller);
     return () => {
       unwatch();
-      off();
+      offs.forEach((off) => off());
+      cancelAnimationFrame(pulseFrame);
       ro.disconnect();
       disposed = true;
       renderer?.dispose();
@@ -90,9 +133,11 @@
       rows: visible.map((r) => cache.row(r)?.graph ?? null),
       theme: { lanes: theme.lanes, surface: theme.surface, contrastBorder: theme.contrastBorder, head: theme.head },
       headRow: -1,
-      pulseRow: -1,
-      pulse: 1,
+      pulseRow: sync?.row ?? -1,
+      pulse,
       pulseColor: theme.lineSync,
+      lineage,
+      lineageColor: theme.focus,
     });
   });
 
@@ -131,6 +176,7 @@
             id="row-{r}"
             aria-selected={!!row && row.commit.sha === selected}
             class:selected={!!row && row.commit.sha === selected}
+            class:synced={r === sync?.row}
             style:transform="translateY({(r - first) * ROW_HEIGHT}px)"
             data-sha={row?.commit.sha}
           >
@@ -201,6 +247,9 @@
   }
   .row:hover {
     background: var(--gvx-hover);
+  }
+  .row.synced {
+    background: var(--gvx-line-sync);
   }
   .row.selected {
     background: var(--gvx-selection);

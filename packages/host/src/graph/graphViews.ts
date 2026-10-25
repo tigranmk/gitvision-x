@@ -8,7 +8,9 @@ import * as vscode from 'vscode';
 import {
   RpcEndpoint,
   RpcError,
+  isCancelled,
   type EventMap,
+  type GraphSync,
   type GraphHostEvents,
   type GraphHostMethods,
   type GraphState,
@@ -16,12 +18,16 @@ import {
   type Transport,
 } from '@gvx/protocol';
 import type { WorkerPool } from '@gvx/git-engine';
+import type { BlameController } from '../blame/blameController';
+import { IDLE_MS } from '../blame/blameController';
 import type { RepoRegistry } from '../repoRegistry';
 import type { SelectionStore } from '../selectionStore';
 import { webviewHtml } from './html';
 
 export const GRAPH_VIEW_ID = 'gitvision.graph';
 const PANEL_TYPE = 'gitvision.graphPanel';
+/** Stage 2 outlines at most this many commits of the line's history. */
+const LINEAGE_MAX = 500;
 
 type Rpc = RpcEndpoint<GraphHostMethods, NoMethods, GraphHostEvents, EventMap>;
 
@@ -30,12 +36,22 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
   private readonly disposables: vscode.Disposable[] = [];
   private shown: string | null = null;
   private panel: vscode.WebviewPanel | undefined;
+  private sync: GraphSync | null = null;
+  private syncSeq = 0;
+  /** Cursor line (file + HEAD line) the current sync and lineage belong to. */
+  private syncKey: string | null = null;
+  private lineage: { key: string; controller: AbortController } | null = null;
+  private lineageTimer: ReturnType<typeof setTimeout> | undefined;
+  /** For tests: the last stage-1 sync (cursor event → event pushed) and stage-2 lineage. */
+  lastSync: { sha: string | null; row: number; seq: number; ms: number } | null = null;
+  lastLineage: { seq: number; rows: number[]; ms: number } | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly pool: WorkerPool,
     private readonly repos: RepoRegistry,
     private readonly selection: SelectionStore,
+    private readonly blame: () => BlameController | undefined,
   ) {
     this.shown = this.pickRoot();
     this.disposables.push(
@@ -43,6 +59,8 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       vscode.commands.registerCommand('gitvision.graph.openBeside', () => this.openBeside()),
       this.selection.onDidChange(({ changed }) => {
         if (changed.includes('repo')) this.follow();
+        // 'commit' is set when the ghost text renders: a fallback for lines the cache could not answer at once.
+        if (changed.includes('line') || changed.includes('file') || changed.includes('commit')) void this.syncToCursor();
       }),
       repos.onDidOpen(() => this.follow()),
       repos.onDidClose(() => this.follow()),
@@ -50,7 +68,13 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
         // Any sync that replaced the table (not 'unchanged') shifts rows: the webview drops its pages.
         if (stats.root === this.shown && stats.mode !== 'unchanged') this.broadcast();
       }),
+      { dispose: () => this.cancelLineage() },
     );
+  }
+
+  /** Blame for a file landed or streamed in: the cursor line may be answerable now. */
+  blameLoaded(): void {
+    if (!this.sync) void this.syncToCursor();
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -81,6 +105,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       root: session?.root ?? null,
       total: session?.lastStats?.commitCount ?? 0,
       userEmail: session?.info.userEmail ?? null,
+      sync: this.sync,
     };
   }
 
@@ -137,8 +162,81 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
   }
 
   private broadcast(): void {
+    // Rows shift when the table is replaced: drop the sync, push the reset, then sync again.
+    this.sync = null;
+    this.syncKey = null;
+    this.cancelLineage();
     const state = this.state();
     for (const c of this.clients) c.emit('graph.reset', state);
+    void this.syncToCursor();
+  }
+
+  /**
+   * Stage 1 (D1): pulse the commit that last touched the cursor line, straight from the blame cache.
+   * Stage 2 starts after the cursor rests: the line's full lineage, outlined when the worker has it.
+   */
+  private async syncToCursor(): Promise<void> {
+    const started = performance.now();
+    const editor = vscode.window.activeTextEditor;
+    const root = this.shown;
+    if (!editor || !root) return;
+    const line = editor.selection.active.line;
+    const c = this.blame()?.lineCommit(editor, line);
+    if (c === undefined) return; // not known without a round trip; the ghost text render re-triggers this
+    if (c === null || c.root !== root) {
+      this.cancelLineage();
+      this.syncKey = null;
+      if (this.sync) {
+        this.sync = null;
+        this.lastSync = { sha: null, row: -1, seq: this.syncSeq, ms: performance.now() - started };
+        this.emit('graph.sync', null);
+      }
+      return;
+    }
+    const key = `${c.path}:${c.headLine}`;
+    if (key === this.syncKey && this.sync?.sha === c.sha) return;
+    this.syncKey = key;
+    this.scheduleLineage(c.root, c.path, c.headLine, key);
+    if (this.sync?.sha === c.sha) return; // same commit, another of its lines: no new pulse
+
+    const [row] = await this.pool.request('graph.rows', { root, shas: [c.sha] }, { affinity: root }).catch(() => [-1]);
+    if (this.shown !== root || this.syncKey !== key) return; // moved on meanwhile
+    this.sync = { sha: c.sha, row: row ?? -1, seq: ++this.syncSeq };
+    this.lastSync = { sha: c.sha, row: this.sync.row, seq: this.sync.seq, ms: performance.now() - started };
+    this.emit('graph.sync', this.sync);
+  }
+
+  private scheduleLineage(root: string, path: string, headLine: number, key: string): void {
+    this.cancelLineage();
+    this.lineageTimer = setTimeout(() => {
+      const controller = new AbortController();
+      this.lineage = { key, controller };
+      const started = performance.now();
+      void this.pool
+        .request('blame.lineHistory', { root, path, line: headLine + 1, count: LINEAGE_MAX }, { affinity: root, signal: controller.signal })
+        .then((history) => this.pool.request('graph.rows', { root, shas: history.map((h) => h.sha) }, { affinity: root, signal: controller.signal }))
+        .then(
+          (rows) => {
+            if (this.lineage?.controller !== controller || !this.sync) return;
+            const found = rows.filter((r) => r >= 0);
+            this.lastLineage = { seq: this.sync.seq, rows: found, ms: performance.now() - started };
+            this.emit('graph.lineage', { seq: this.sync.seq, rows: found });
+          },
+          (e) => {
+            if (!isCancelled(e)) this.lastLineage = { seq: this.sync?.seq ?? -1, rows: [], ms: performance.now() - started };
+          },
+        );
+    }, IDLE_MS);
+  }
+
+  private cancelLineage(): void {
+    clearTimeout(this.lineageTimer);
+    this.lineage?.controller.abort();
+    this.lineage = null;
+  }
+
+  private emit<E extends 'graph.sync' | 'graph.lineage'>(event: E, data: GraphHostEvents[E]): void {
+    for (const c of this.clients) c.emit(event, data);
   }
 }
 

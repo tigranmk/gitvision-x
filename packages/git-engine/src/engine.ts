@@ -58,6 +58,12 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
     return withTransfer(page, [p.nodeLane.buffer, p.flags.buffer, p.edgeStart.buffer, p.edges.buffer] as ArrayBuffer[]);
   });
 
+  rpc.handle('graph.rows', ({ root, shas }) => {
+    const table = ready().index.table(root);
+    if (!table) throw Object.assign(new Error(`No commit index for ${root}`), { code: 'no-index' });
+    return shas.map((s) => table.rowOf(s) ?? -1);
+  });
+
   rpc.handle('index.contains', ({ root, shas }) => ready().index.contains(root, shas));
 
   rpc.handle('repo.commitGraph', async ({ root }, { signal }) => {

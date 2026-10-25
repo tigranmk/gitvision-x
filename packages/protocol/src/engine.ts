@@ -131,6 +131,8 @@ export type EngineMethods = {
   /** Whether each commit is in the repo's index (reachable from a tip); null if the index is not loaded. */
   /** Rows [start, start + count) of the repo's graph; errors with code 'no-index' before the first index.sync. */
   'graph.page': MethodSpec<{ root: string; start: number; count: number }, GraphPage>;
+  /** Row of each commit in the repo's graph, -1 when it is not in the index. */
+  'graph.rows': MethodSpec<{ root: string; shas: string[] }, number[]>;
   'index.contains': MethodSpec<{ root: string; shas: string[] }, boolean[] | null>;
   'repo.commitGraph': MethodSpec<{ root: string }, CommitGraphStatus>;
   /** `git commit-graph write --reachable --changed-paths`. */

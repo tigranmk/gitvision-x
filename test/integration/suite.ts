@@ -11,7 +11,9 @@ interface TestState {
   selection: { repo: string | null; file: string | null; line: number | null; commit: string | null };
   refsEvents: { root: string; mode: string }[];
   lastRender?: { uri: string; line: number; text: string; ms: number; warm: boolean };
-  graph?: { root: string | null; total: number };
+  graph?: { root: string | null; total: number; sync: { sha: string; row: number } | null };
+  graphSync?: { sha: string | null; row: number; seq: number; ms: number } | null;
+  graphLineage?: { seq: number; rows: number[]; ms: number } | null;
 }
 
 // A remote extension host doesn't get the runner's env, so fall back to the window's folder.
@@ -231,6 +233,30 @@ export function defineSuite(): void {
         return s.graph?.root === realRoot && s.graph.total === repo?.stats?.commitCount && s.graph;
       });
       assert.ok(g.total > 5);
+
+      // Editor → graph sync (D1): stage 1 from the blame cache, stage 2 (lineage) after the cursor rests.
+      const doc = await vscode.workspace.openTextDocument(path.join(workspace, 'src', 'app.ts'));
+      const ed = await vscode.window.showTextDocument(doc);
+      await waitFor('blame of app.ts', async () => {
+        const r = await vscode.commands.executeCommand<{ known: boolean; coldMs?: number }>('gitvision._test.fileBlame', doc.uri);
+        return r.known && r.coldMs !== undefined;
+      });
+      const head = git('log', '-1', '--format=%H', '--', 'src/app.ts').trim();
+      ed.selection = new vscode.Selection(11, 0, 11, 0); // a line from the last commit that touched app.ts
+      const synced = await waitFor('graph sync', async () => {
+        const s = await state();
+        return s.graphSync?.sha === head && s.graph?.sync?.sha === head && s;
+      });
+      const expectRow = Number(git('rev-list', '--count', '--topo-order', '--all', `^${head}`).trim());
+      console.log(`      cursor → graph sync ${synced.graphSync!.ms.toFixed(1)} ms (row ${synced.graphSync!.row})`);
+      assert.ok(synced.graphSync!.ms < 100, `stage 1 took ${synced.graphSync!.ms.toFixed(1)} ms`);
+      assert.ok(synced.graphSync!.row >= 0 && synced.graphSync!.row <= expectRow);
+      const lineage = await waitFor('lineage', async () => {
+        const l = (await state()).graphLineage;
+        return l?.seq === synced.graphSync!.seq && l;
+      });
+      console.log(`      lineage: ${lineage.rows.length} commits in ${lineage.ms.toFixed(0)} ms`);
+      assert.ok(lineage.rows.includes(synced.graphSync!.row), `the synced commit is part of its line lineage (${lineage.rows})`);
 
       await vscode.commands.executeCommand('gitvision.graph.openBeside');
       const tab = await waitFor('graph panel tab', async () =>

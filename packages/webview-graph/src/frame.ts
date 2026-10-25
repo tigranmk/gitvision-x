@@ -41,8 +41,8 @@ export function pack(d: DrawInput): PackedFrame {
 
 /** Everything in a frame except the rows. */
 function frameFields(d: Omit<DrawInput, 'rows'>): Omit<DrawInput, 'rows'> {
-  const { width, height, dpr, scrollTop, first, theme, headRow, pulseRow, pulse, pulseColor } = d;
-  return { width, height, dpr, scrollTop, first, theme, headRow, pulseRow, pulse, pulseColor };
+  const { width, height, dpr, scrollTop, first, theme, headRow, pulseRow, pulse, pulseColor, lineage, lineageColor } = d;
+  return { width, height, dpr, scrollTop, first, theme, headRow, pulseRow, pulse, pulseColor, lineage, lineageColor };
 }
 
 export function unpack(f: PackedFrame): DrawInput {
