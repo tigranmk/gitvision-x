@@ -126,3 +126,41 @@ test('editor → graph sync scrolls to the commit, pulses it and outlines the li
   h.host.emit('graph.sync', null);
   await expect(page.locator('.row.synced')).toHaveCount(0);
 });
+
+test('labels refs and HEAD; clicking a commit opens its details', async ({ page }) => {
+  h = await openGraph(page, 'small');
+  const rows = page.locator('[role=option]');
+  await expect(rows.nth(0).locator('.subject')).toHaveText("Merge branch 'feature'");
+  // HEAD's branch chip is marked; another branch is a plain chip; codicons load under the CSP.
+  await expect(rows.nth(0).locator('.ref.head')).toHaveText('main');
+  await expect(page.locator('.ref.branch', { hasText: 'feature' })).toBeVisible();
+  expect(await page.evaluate(() => document.fonts.check('12px codicon'))).toBe(true);
+
+  h.openFiles.push('src/feature.ts');
+  await rows.nth(0).click();
+  const details = page.locator('aside.details');
+  await expect(details.locator('h2')).toHaveText("Merge branch 'feature'");
+  await expect(details.locator('dt', { hasText: 'Parents' })).toBeVisible();
+  // A merge is diffed against its first parent: only the feature branch's file.
+  await expect(details.locator('h3')).toContainText('1 file changed');
+  await expect(details.locator('h4', { hasText: 'Open in editor' })).toBeVisible();
+  await expect(details.locator('[role=tree]').first().locator('.name')).toHaveText(['src/feature.ts']);
+  await expect(details.locator('.open-badge')).toHaveCount(2); // pinned copy and tree entry
+
+  await details.locator('button[title="Copy SHA"]').click();
+  await expect.poll(() => h!.clipboard.length).toBe(1);
+  expect(h.clipboard[0]).toMatch(/^[0-9a-f]{40}$/);
+
+  // Jump to the second parent (the feature commit): it becomes the selected row.
+  await details.locator('dd button.link').nth(1).click();
+  await expect(details.locator('h2')).toHaveText('feature work');
+  await expect(page.locator('[role=option][aria-selected=true] .subject')).toHaveText('feature work');
+  await page.screenshot({ path: 'test-results/graph-details.png' });
+
+  // A tab closed in the editor: the pin goes away without reopening the pane.
+  h.host.emit('graph.openFiles', { root: h.root, paths: [] });
+  await expect(details.locator('.open-badge')).toHaveCount(0);
+
+  await details.locator('button[title="Close details"]').click();
+  await expect(details).toHaveCount(0);
+});

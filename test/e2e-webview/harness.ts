@@ -19,6 +19,7 @@ import {
   type WireMessage,
 } from '@gvx/protocol';
 import { webviewHtml } from '../../packages/host/src/graph/html';
+import { registerGraphMethods } from '../../packages/host/src/graph/methods';
 
 const ROOT = path.resolve(__dirname, '../..');
 export const FIXTURES = path.join(ROOT, 'test/fixtures/repos');
@@ -50,12 +51,22 @@ export const DARK_THEME: Record<string, string> = {
   '--vscode-charts-yellow': '#cca700',
   '--vscode-terminal-ansiCyan': '#11a8cd',
   '--vscode-terminal-ansiMagenta': '#bc3fbc',
+  '--vscode-gitDecoration-addedResourceForeground': '#81b88b',
+  '--vscode-gitDecoration-deletedResourceForeground': '#c74e39',
+  '--vscode-gitDecoration-modifiedResourceForeground': '#e2c08d',
+  '--vscode-textLink-foreground': '#4daafc',
 };
 
 export interface Harness {
   page: Page;
   host: HostRpc;
   state: GraphState;
+  root: string;
+  pool: WorkerPool;
+  /** Text the webview asked the host to copy. */
+  clipboard: string[];
+  /** Repo-relative paths the fake host reports as open in editors (mutable). */
+  openFiles: string[];
   /** Wire messages the webview sent, by method (requests only). */
   requests: { method: string; params: unknown }[];
   cspViolations: string[];
@@ -90,8 +101,15 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
       return () => (deliver = null);
     },
   });
-  host.handle('graph.state', () => state);
-  host.handle('graph.page', ({ root: r, start, count }, { signal }) => pool.request('graph.page', { root: r, start, count }, { affinity: r, signal }));
+  const clipboard: string[] = [];
+  const openFiles: string[] = [];
+  registerGraphMethods(host, {
+    pool,
+    state: () => state,
+    shown: () => root,
+    openFiles: () => openFiles,
+    writeClipboard: async (text) => void clipboard.push(text),
+  });
 
   await page.exposeFunction('__gvxToHost', (m: unknown) => {
     const msg = decode(m) as WireMessage;
@@ -151,7 +169,7 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
       return route.fulfill({ contentType: 'text/html', body: html });
     }
     const file = path.join(bundle, path.basename(url.pathname));
-    const type = file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'application/octet-stream';
+    const type = file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.ttf') ? 'font/ttf' : 'application/octet-stream';
     return route.fulfill({ contentType: type, body: readFileSync(file) });
   });
   await page.goto(`${ORIGIN}/`);
@@ -160,6 +178,10 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     page,
     host,
     state,
+    root,
+    pool,
+    clipboard,
+    openFiles,
     requests,
     cspViolations,
     pageErrors,

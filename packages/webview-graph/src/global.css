@@ -1,0 +1,31 @@
+/* Shared by the commit rows and the details pane. */
+.ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 16em;
+  padding: 0 4px;
+  border: 1px solid var(--chip-color, var(--gvx-border));
+  border-radius: var(--gvx-radius);
+  font-size: 0.92em;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+}
+.ref .codicon {
+  font-size: 12px;
+}
+.ref.head {
+  font-weight: 600;
+  border-color: var(--gvx-head);
+}
+.ref.remote,
+.ref.tag {
+  color: var(--gvx-text-muted);
+}
+body.vscode-high-contrast .ref,
+body.vscode-high-contrast-light .ref {
+  border-color: var(--gvx-contrast-border);
+}

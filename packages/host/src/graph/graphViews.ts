@@ -5,31 +5,21 @@
  */
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
-import {
-  RpcEndpoint,
-  RpcError,
-  isCancelled,
-  type EventMap,
-  type GraphSync,
-  type GraphHostEvents,
-  type GraphHostMethods,
-  type GraphState,
-  type NoMethods,
-  type Transport,
-} from '@gvx/protocol';
+import { RpcEndpoint, isCancelled, type GraphHostEvents, type GraphState, type GraphSync, type Transport } from '@gvx/protocol';
 import type { WorkerPool } from '@gvx/git-engine';
 import type { BlameController } from '../blame/blameController';
 import { IDLE_MS } from '../blame/blameController';
 import type { RepoRegistry } from '../repoRegistry';
 import type { SelectionStore } from '../selectionStore';
 import { webviewHtml } from './html';
+import { registerGraphMethods, type GraphRpc } from './methods';
 
 export const GRAPH_VIEW_ID = 'gitvision.graph';
 const PANEL_TYPE = 'gitvision.graphPanel';
 /** Stage 2 outlines at most this many commits of the line's history. */
 const LINEAGE_MAX = 500;
 
-type Rpc = RpcEndpoint<GraphHostMethods, NoMethods, GraphHostEvents, EventMap>;
+type Rpc = GraphRpc;
 
 export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly clients = new Set<Rpc>();
@@ -67,6 +57,9 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       repos.onDidSync(({ stats }) => {
         // Any sync that replaced the table (not 'unchanged') shifts rows: the webview drops its pages.
         if (stats.root === this.shown && stats.mode !== 'unchanged') this.broadcast();
+      }),
+      vscode.window.tabGroups.onDidChangeTabs(() => {
+        if (this.shown) this.emit('graph.openFiles', { root: this.shown, paths: this.openFiles(this.shown) });
       }),
       { dispose: () => this.cancelLineage() },
     );
@@ -127,10 +120,12 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       },
     };
     const rpc: Rpc = new RpcEndpoint(transport);
-    rpc.handle('graph.state', () => this.state());
-    rpc.handle('graph.page', ({ root, start, count }, { signal }) => {
-      if (root !== this.shown) throw new RpcError(`Graph moved on from ${root}`, 'stale');
-      return this.pool.request('graph.page', { root, start, count }, { affinity: root, signal });
+    registerGraphMethods(rpc, {
+      pool: this.pool,
+      state: () => this.state(),
+      shown: () => this.shown,
+      openFiles: (root) => this.openFiles(root),
+      writeClipboard: (text) => vscode.env.clipboard.writeText(text),
     });
     this.clients.add(rpc);
     owner.onDidDispose(() => {
@@ -235,7 +230,21 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     this.lineage = null;
   }
 
-  private emit<E extends 'graph.sync' | 'graph.lineage'>(event: E, data: GraphHostEvents[E]): void {
+  /** Repo-relative paths of files open in editor tabs (text and diff editors). */
+  private openFiles(root: string): string[] {
+    const paths = new Set<string>();
+    for (const tab of vscode.window.tabGroups.all.flatMap((g) => g.tabs)) {
+      const uris =
+        tab.input instanceof vscode.TabInputText ? [tab.input.uri] : tab.input instanceof vscode.TabInputTextDiff ? [tab.input.modified] : [];
+      for (const uri of uris) {
+        const f = this.repos.fileOf(uri);
+        if (f && f.session.root === root) paths.add(f.path);
+      }
+    }
+    return [...paths];
+  }
+
+  private emit<E extends 'graph.sync' | 'graph.lineage' | 'graph.openFiles'>(event: E, data: GraphHostEvents[E]): void {
     for (const c of this.clients) c.emit(event, data);
   }
 }

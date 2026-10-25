@@ -114,6 +114,47 @@ export interface GraphPage {
   edges: Uint32Array;
 }
 
+export interface CommitFile {
+  path: string;
+  /** Renames and copies: the path in the parent. */
+  oldPath?: string;
+  /** git's status letter: A, M, D, R, C, T (type change). */
+  status: string;
+  added: number;
+  removed: number;
+  binary: boolean;
+}
+
+export interface CommitDetails {
+  sha: string;
+  parents: string[];
+  author: string;
+  authorMail: string;
+  authorTime: number;
+  committer: string;
+  committerMail: string;
+  commitTime: number;
+  /** Full message (subject, blank line, body). */
+  message: string;
+  /** Changes against the first parent (the root commit: everything added). */
+  files: CommitFile[];
+  /** Files left out past the cap. */
+  filesTruncated: number;
+}
+
+export interface RefInfo {
+  /** Short name: `main`, `origin/main`, `v1.0`. */
+  name: string;
+  kind: 'branch' | 'remote' | 'tag';
+  sha: string;
+}
+
+export interface RepoRefs {
+  /** HEAD's commit (null in an empty repo) and its branch (null when detached). */
+  head: { sha: string | null; branch: string | null };
+  refs: RefInfo[];
+}
+
 /** Files above this many lines are blamed on demand only (spec F1). */
 export const AUTO_BLAME_MAX_LINES = 20_000;
 
@@ -133,6 +174,8 @@ export type EngineMethods = {
   'graph.page': MethodSpec<{ root: string; start: number; count: number }, GraphPage>;
   /** Row of each commit in the repo's graph, -1 when it is not in the index. */
   'graph.rows': MethodSpec<{ root: string; shas: string[] }, number[]>;
+  'commit.details': MethodSpec<{ root: string; sha: string }, CommitDetails>;
+  'repo.refs': MethodSpec<{ root: string }, RepoRefs>;
   'index.contains': MethodSpec<{ root: string; shas: string[] }, boolean[] | null>;
   'repo.commitGraph': MethodSpec<{ root: string }, CommitGraphStatus>;
   /** `git commit-graph write --reachable --changed-paths`. */

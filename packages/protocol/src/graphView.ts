@@ -1,5 +1,5 @@
 /** Host ↔ graph webview channel (an RpcEndpoint over the webview's postMessage). */
-import type { GraphPage } from './engine';
+import type { CommitDetails, CommitFile, GraphPage, RefInfo } from './engine';
 import type { MethodSpec } from './rpc';
 
 export interface GraphState {
@@ -28,8 +28,32 @@ export interface GraphLineage {
   rows: number[];
 }
 
+export interface GraphRef extends RefInfo {
+  /** Row of the commit it points at (-1 if not in the graph). */
+  row: number;
+}
+
+export interface GraphRefs {
+  head: { sha: string | null; branch: string | null; row: number };
+  refs: GraphRef[];
+}
+
+export interface GraphFile extends CommitFile {
+  /** Open in an editor tab: pinned to the top of the file tree and badged. */
+  open: boolean;
+}
+
+export interface GraphCommitDetails extends Omit<CommitDetails, 'files'> {
+  files: GraphFile[];
+}
+
 /** Served by the host, called by the webview. */
 export type GraphHostMethods = {
+  'graph.refs': MethodSpec<{ root: string }, GraphRefs>;
+  'graph.details': MethodSpec<{ root: string; sha: string }, GraphCommitDetails>;
+  /** Rows of commits (-1 when not in the graph), e.g. to jump to a parent. */
+  'graph.rows': MethodSpec<{ root: string; shas: string[] }, number[]>;
+  'clipboard.write': MethodSpec<{ text: string }, null>;
   'graph.state': MethodSpec<Record<string, never>, GraphState>;
   /** Rows of the repo in `root` (the state the webview last saw); 'stale' if the host moved on. */
   'graph.page': MethodSpec<{ root: string; start: number; count: number }, GraphPage>;
@@ -41,4 +65,6 @@ export type GraphHostEvents = {
   'graph.reset': GraphState;
   'graph.sync': GraphSync | null;
   'graph.lineage': GraphLineage;
+  /** Repo-relative paths open in editor tabs changed. */
+  'graph.openFiles': { root: string; paths: string[] };
 };

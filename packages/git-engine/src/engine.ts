@@ -5,7 +5,8 @@ import { commitGraphStatus, writeCommitGraph } from './commitGraph';
 import { Git } from './git';
 import { GraphLayout } from './graphLayout';
 import { IndexStore } from './indexStore';
-import { resolveRepo } from './repo';
+import { commitDetails } from './commitDetails';
+import { readRefs, resolveRepo } from './repo';
 
 /** Tables up to this size are laid out whole on the first graph page. */
 const EAGER_LAYOUT_ROWS = 250_000;
@@ -63,6 +64,10 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
     if (!table) throw Object.assign(new Error(`No commit index for ${root}`), { code: 'no-index' });
     return shas.map((s) => table.rowOf(s) ?? -1);
   });
+
+  rpc.handle('commit.details', ({ root, sha }, { signal }) => commitDetails(ready().git, root, sha, signal));
+
+  rpc.handle('repo.refs', ({ root }, { signal }) => readRefs(ready().git, root, signal));
 
   rpc.handle('index.contains', ({ root, shas }) => ready().index.contains(root, shas));
 

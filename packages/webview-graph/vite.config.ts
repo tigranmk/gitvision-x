@@ -5,6 +5,8 @@ import { defineConfig } from 'vite';
 // One ES module + one stylesheet; the host writes the HTML (with its CSP nonce) around them.
 export default defineConfig(({ mode }) => ({
   root: fileURLToPath(new URL('.', import.meta.url)),
+  // Relative asset URLs: webviews load the bundle from the extension's resource URI, not a server root.
+  base: './',
   plugins: [svelte()],
   define: { __DEV__: JSON.stringify(mode !== 'production') },
   build: {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { relativeTime, type GraphState, type GraphSync } from '@gvx/protocol';
+  import { LANE_COLORS, relativeTime, type GraphRef, type GraphRefs, type GraphState, type GraphSync } from '@gvx/protocol';
+  import Details from './Details.svelte';
   import { readTheme, watchTheme, type CanvasTheme } from '@gvx/ui-tokens';
   import { graphWidth, ROW_HEIGHT } from './draw';
   import { createRenderer, type GraphRenderer } from './renderer';
@@ -14,6 +15,24 @@
   let sync = $state.raw<GraphSync | null>(null);
   let pulse = $state(1);
   let lineage = $state.raw(new Int32Array(0));
+  let refs = $state.raw<GraphRefs | null>(null);
+  let openFiles = $state.raw<ReadonlySet<string> | null>(null);
+  const refsByRow = $derived.by(() => {
+    const m = new Map<number, GraphRef[]>();
+    for (const r of refs?.refs ?? []) {
+      if (r.row < 0) continue;
+      const list = m.get(r.row) ?? [];
+      list.push(r);
+      m.set(r.row, list);
+    }
+    // HEAD's branch first, then branches, remotes, tags.
+    const order = { branch: 0, remote: 1, tag: 2 };
+    for (const list of m.values()) list.sort((a, b) => Number(isHead(b)) - Number(isHead(a)) || order[a.kind] - order[b.kind]);
+    return m;
+  });
+  const isHead = (r: GraphRef) => r.kind === 'branch' && r.name === refs?.head.branch;
+  /** Detached HEAD: no branch to mark, so the row gets its own HEAD chip. */
+  const detachedRow = $derived(refs && !refs.head.branch ? refs.head.row : -1);
   let error = $state<string | null>(null);
   let scrollTop = $state(0);
   let viewHeight = $state(0);
@@ -53,6 +72,28 @@
     version++;
     if (repoChanged && scroller) scroller.scrollTop = scrollTop = 0;
     applySync(next.sync);
+    refs = null;
+    if (next.root) {
+      const root = next.root;
+      rpc.request('graph.refs', { root }).then(
+        (r) => {
+          if (graph.root === root) refs = r;
+        },
+        () => {},
+      );
+    }
+  }
+
+  function scrollToRow(row: number) {
+    if (row >= first && row <= last - 1) return;
+    scroller.scrollTop = scrollTop = Math.max(0, row * ROW_HEIGHT - viewHeight / 2 + ROW_HEIGHT / 2);
+  }
+
+  async function jumpTo(sha: string) {
+    const [row] = await rpc.request('graph.rows', { root: graph.root!, shas: [sha] });
+    if (row === undefined || row < 0) return;
+    selected = sha;
+    scrollToRow(row);
   }
 
   function applySync(next: GraphSync | null) {
@@ -62,9 +103,7 @@
     lineage = new Int32Array(0);
     if (!next || next.row < 0) return;
     // Scroll the commit into view (centred) only when it is outside the viewport.
-    if (scroller && (next.row < first || next.row > last - 1)) {
-      scroller.scrollTop = scrollTop = Math.max(0, next.row * ROW_HEIGHT - viewHeight / 2 + ROW_HEIGHT / 2);
-    }
+    if (scroller) scrollToRow(next.row);
     startPulse();
   }
 
@@ -99,6 +138,9 @@
     const offs = [
       rpc.on('graph.reset', apply),
       rpc.on('graph.sync', applySync),
+      rpc.on('graph.openFiles', (o) => {
+        if (o.root === graph.root) openFiles = new Set(o.paths);
+      }),
       rpc.on('graph.lineage', (l) => {
         if (l.seq === sync?.seq) lineage = Int32Array.from(l.rows).sort();
       }),
@@ -132,7 +174,7 @@
       first,
       rows: visible.map((r) => cache.row(r)?.graph ?? null),
       theme: { lanes: theme.lanes, surface: theme.surface, contrastBorder: theme.contrastBorder, head: theme.head },
-      headRow: -1,
+      headRow: refs?.head.row ?? -1,
       pulseRow: sync?.row ?? -1,
       pulse,
       pulseColor: theme.lineSync,
@@ -155,6 +197,7 @@
 </script>
 
 <div class="graph" data-renderer={renderer?.kind}>
+ <div class="list">
   {#if error}
     <p class="message">{error}</p>
   {:else if !graph.root}
@@ -182,6 +225,15 @@
           >
             <span class="lanes" style:width="{graphW}px"></span>
             {#if row}
+              {#if r === detachedRow}<span class="ref head" title="HEAD is detached at this commit">HEAD</span>{/if}
+              {#each refsByRow.get(r) ?? [] as ref (ref.kind + ref.name)}
+                <span
+                  class="ref {ref.kind}"
+                  class:head={isHead(ref)}
+                  title="{ref.kind === 'tag' ? 'Tag' : ref.kind === 'remote' ? 'Remote branch' : isHead(ref) ? 'Current branch (HEAD)' : 'Branch'} {ref.name}"
+                  style:--chip-color={theme?.lanes[row.graph.lane % LANE_COLORS]}
+                ><i class="codicon codicon-{ref.kind === 'tag' ? 'tag' : ref.kind === 'remote' ? 'cloud' : 'git-branch'}"></i>{ref.name}</span>
+              {/each}
               <span class="subject">{row.commit.subject}</span>
               <span class="author">{who(row.commit.author, row.commit.authorMail)}</span>
               <span class="date">{relativeTime(row.commit.time, now)}</span>
@@ -193,13 +245,49 @@
     </div>
     <div style:height="{Math.max(0, graph.total * ROW_HEIGHT - viewHeight)}px"></div>
   </div>
+ </div>
+  {#if selected && graph.root}
+    <Details
+      {rpc}
+      root={graph.root}
+      sha={selected}
+      refs={refs?.refs.filter((r) => r.sha === selected) ?? []}
+      {openFiles}
+      userEmail={graph.userEmail}
+      onJump={(sha) => void jumpTo(sha)}
+      onClose={() => (selected = null)}
+    />
+  {/if}
 </div>
 
 <style>
   .graph {
-    position: relative;
+    display: flex;
     height: 100vh;
     overflow: hidden;
+  }
+  .list {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+  }
+  .graph :global(.details) {
+    flex: 0 0 40%;
+    min-width: 260px;
+    max-width: 560px;
+  }
+  /* Narrow (the panel docked at the side): details below the list. */
+  @media (max-width: 640px) {
+    .graph {
+      flex-direction: column;
+    }
+    .graph :global(.details) {
+      flex: 0 0 45%;
+      max-width: none;
+      min-width: 0;
+      border-left: none;
+      border-top: 1px solid var(--gvx-border);
+    }
   }
   .message {
     position: absolute;

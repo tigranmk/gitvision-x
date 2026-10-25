@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
-import type { RepoInfo } from '@gvx/protocol';
+import type { RefInfo, RepoInfo, RepoRefs } from '@gvx/protocol';
 import type { Git } from './git';
 
 export async function resolveRepo(git: Git, dir: string, signal?: AbortSignal): Promise<RepoInfo | null> {
@@ -75,4 +75,23 @@ async function packedRef(commonDir: string, ref: string): Promise<string | null>
     }
   }
   return null;
+}
+
+/** Branch, remote and tag names (tags peeled to their commit) and HEAD, for graph labels and the details pane. */
+export async function readRefs(git: Git, root: string, signal?: AbortSignal): Promise<RepoRefs> {
+  const [list, head, branch] = await Promise.all([
+    git.text(['for-each-ref', '--format=%(refname)%00%(objectname)%00%(*objectname)%00%(symref)', 'refs/heads', 'refs/remotes', 'refs/tags'], { cwd: root, signal }),
+    git.tryText(['rev-parse', '--verify', '-q', 'HEAD^{commit}'], { cwd: root, signal }),
+    git.tryText(['symbolic-ref', '-q', '--short', 'HEAD'], { cwd: root, signal }),
+  ]);
+  const refs: RefInfo[] = [];
+  for (const line of list.split('\n')) {
+    const [ref = '', obj = '', peeled = '', symref = ''] = line.split('\0');
+    if (!ref || symref) continue; // origin/HEAD and other symbolic refs repeat a real ref
+    const sha = peeled || obj;
+    if (ref.startsWith('refs/heads/')) refs.push({ name: ref.slice(11), kind: 'branch', sha });
+    else if (ref.startsWith('refs/remotes/')) refs.push({ name: ref.slice(13), kind: 'remote', sha });
+    else if (ref.startsWith('refs/tags/')) refs.push({ name: ref.slice(10), kind: 'tag', sha });
+  }
+  return { head: { sha: head?.trim() || null, branch: branch?.trim() || null }, refs };
 }
