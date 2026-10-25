@@ -87,7 +87,13 @@
   </ul>
 
   <div class="actions">
-    <button class="primary" disabled={!canContinue} title={canContinue ? '' : 'Resolve every conflict first'} onclick={() => run('continue')}>
+    <!-- aria-disabled, not disabled: it stays reachable by keyboard and says why it cannot run yet. -->
+    <button
+      class="primary"
+      aria-disabled={!canContinue}
+      title={canContinue ? '' : 'Resolve every conflict first'}
+      onclick={() => canContinue && run('continue')}
+    >
       <i class="codicon codicon-check"></i> {conflict.op === 'merge' ? 'Commit merge' : 'Continue'}
     </button>
     {#if conflict.op !== 'merge'}<button onclick={() => run('skip')}><i class="codicon codicon-debug-step-over"></i> Skip commit</button>{/if}
@@ -203,7 +209,7 @@
     background: var(--vscode-button-background, var(--gvx-selection));
     color: var(--vscode-button-foreground, var(--gvx-text));
   }
-  button:disabled {
+  button[aria-disabled='true'] {
     opacity: 0.5;
     cursor: default;
   }

@@ -136,8 +136,8 @@
         title={pos.pinned ? 'Unpin: compare each revision with its predecessor' : 'Pin this revision: compare the next ones against it'}
         aria-label="Pin revision to compare"
         aria-pressed={!!pos.pinned}
-        disabled={shownIndex < 0 && !pos.pinned}
-        onclick={() => void rpc.request('timeline.pin', {})}><i class="codicon codicon-{pos.pinned ? 'pinned' : 'pin'}"></i></button>
+        aria-disabled={shownIndex < 0 && !pos.pinned}
+        onclick={() => (shownIndex >= 0 || pos.pinned) && void rpc.request('timeline.pin', {})}><i class="codicon codicon-{pos.pinned ? 'pinned' : 'pin'}"></i></button>
       <button class="icon" title="All revisions…" aria-label="All revisions" onclick={() => void rpc.request('timeline.pick', {})}><i class="codicon codicon-list-flat"></i></button>
       <button class="icon" title="Return to working copy (Escape)" aria-label="Return to working copy" onclick={() => void rpc.request('timeline.exit', {})}><i class="codicon codicon-close"></i></button>
     </div>
@@ -221,13 +221,13 @@
     background: none;
     padding: 2px;
   }
-  button.icon:hover:not(:disabled) {
+  button.icon:hover:not([aria-disabled='true']) {
     background: var(--gvx-hover);
   }
   button.icon.on {
     color: var(--gvx-focus);
   }
-  button.icon:disabled {
+  button.icon[aria-disabled='true'] {
     opacity: 0.4;
     cursor: default;
   }

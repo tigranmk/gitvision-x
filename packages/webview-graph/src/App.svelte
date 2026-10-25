@@ -4,7 +4,8 @@
   import ConflictMap from './ConflictMap.svelte';
   import Details from './Details.svelte';
   import { readTheme, watchTheme, type CanvasTheme } from '@gvx/ui-tokens';
-  import { graphWidth, ROW_HEIGHT } from './draw';
+  import { GRAPH_PAD, LANE_WIDTH, graphWidth, ROW_HEIGHT } from './draw';
+  import { laneStart } from './laneName';
   import { createRenderer, type GraphRenderer } from './renderer';
   import { PageCache } from './pageCache';
   import { vscodeApi, type HostRpc } from './rpc';
@@ -436,6 +437,37 @@
     e.preventDefault();
   }
 
+  // ---- lane tooltip: names the branch a lane belongs to (colour is never the only cue) ----
+  let laneTip = $state<{ x: number; y: number; text: string } | null>(null);
+  function onLaneHover(e: PointerEvent) {
+    const rowsEl = e.currentTarget as HTMLElement;
+    const box = rowsEl.getBoundingClientRect();
+    const x = e.clientX - box.left;
+    const el = (e.target as HTMLElement).closest<HTMLElement>('[role=option]');
+    if (x >= graphW || !el?.dataset.row) return void (laneTip = null);
+    const r = Number(el.dataset.row);
+    const lane = Math.floor((x - GRAPH_PAD) / LANE_WIDTH);
+    const start = laneStart(
+      r,
+      lane,
+      (i) => cache.row(i)?.graph ?? null,
+      (i) => (refsByRow.get(i) ?? []).filter((x) => x.kind !== 'tag').map((x) => x.name),
+    );
+    const at = (i: number) => {
+      const c = cache.row(i)?.commit;
+      return c ? `${c.sha.slice(0, 7)} ${c.subject}` : '';
+    };
+    const text =
+      start.kind === 'tip'
+        ? start.names.length
+          ? `Branch ${start.names.join(', ')}`
+          : `Branch ending at ${at(start.row)} (no name)`
+        : start.kind === 'merged'
+          ? `Branch merged in by ${at(start.row)}`
+          : null;
+    laneTip = text ? { x: e.clientX + 12, y: e.clientY + 14, text } : null;
+  }
+
   /** What VS Code passes to the commit context menu's commands (webview/context in package.json). */
   const menuContext = (c: { sha: string; subject: string; parents: number }) =>
     JSON.stringify({ webviewSection: 'commit', root: graph.root, sha: c.sha, subject: c.subject, parents: c.parents, preventDefaultContextMenuItems: true });
@@ -535,6 +567,8 @@
         onkeydown={onListKeydown}
         onclick={select}
         oncontextmenu={select}
+        onpointermove={onLaneHover}
+        onpointerleave={() => (laneTip = null)}
         {ondragstart}
         {ondragover}
         {ondrop}
@@ -605,6 +639,9 @@
     <div style:height="{Math.max(0, rowCount * ROW_HEIGHT - viewHeight)}px"></div>
   </div>
  </div>
+  {#if laneTip}
+    <div class="lane-tip" role="tooltip" style:left="{laneTip.x}px" style:top="{laneTip.y}px">{laneTip.text}</div>
+  {/if}
   {#if selected === PENDING_SHA && graph.root && graph.conflict}
     <ConflictMap {rpc} root={graph.root} conflict={graph.conflict} onClose={() => (selected = null)} />
   {:else if selected && graph.root}
@@ -753,6 +790,30 @@
   }
   .row:hover {
     background: var(--gvx-hover);
+  }
+  .lane-tip {
+    position: fixed;
+    z-index: 10;
+    pointer-events: none;
+    padding: 2px 6px;
+    background: var(--vscode-editorHoverWidget-background, var(--gvx-surface-raised));
+    color: var(--vscode-editorHoverWidget-foreground, var(--gvx-text));
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--gvx-border));
+    border-radius: var(--gvx-radius);
+    white-space: nowrap;
+  }
+  /* High contrast: VS Code marks list rows with outlines, not fills (its fills are often transparent there). */
+  :global(body.vscode-high-contrast) .row.selected,
+  :global(body.vscode-high-contrast-light) .row.selected {
+    outline: 1px solid var(--vscode-list-focusOutline, var(--gvx-contrast-border));
+    outline-offset: -1px;
+  }
+  :global(body.vscode-high-contrast) .row:hover:not(.selected),
+  :global(body.vscode-high-contrast-light) .row:hover:not(.selected),
+  :global(body.vscode-high-contrast) .row.synced:not(.selected),
+  :global(body.vscode-high-contrast-light) .row.synced:not(.selected) {
+    outline: 1px dashed var(--vscode-contrastActiveBorder, var(--gvx-contrast-border));
+    outline-offset: -1px;
   }
   .subject.pending {
     font-style: italic;
