@@ -3,7 +3,7 @@
  *   pnpm bench          local budgets
  *   pnpm bench --ci     budgets × CI_SLACK (shared CI runners are slower and noisier)
  */
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus, tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -16,6 +16,8 @@ const WIDE = path.join(ROOT, 'test/fixtures/repos/wide-100k');
 const WORKER = path.join(ROOT, 'dist/worker.js');
 const CI = process.argv.includes('--ci');
 const CI_SLACK = 2;
+export const CALIBRATION_GIT = 'calibration: git log of 100k commits';
+export const CALIBRATION_CPU = 'calibration: JS parse/sort/map, 200k rows';
 
 interface Result {
   name: string;
@@ -57,6 +59,25 @@ async function main() {
     const warm = newPool();
     await warm.request('index.sync', { root, storageDir: storage('warmup') }, { affinity: root });
     warm.dispose();
+
+    // Calibrations: workloads independent of our code, timed on the same runner. The regression gate
+    // (bench/compare.mjs) divides each measure by one of them, so a slow or fast CI machine cancels out.
+    await measure(CALIBRATION_GIT, 5, async () => {
+      await new Promise<void>((resolve, reject) =>
+        execFile('git', ['log', '--all', '--format=%H %P %an %s'], { cwd: BIG, maxBuffer: 1 << 28 }, (e) => (e ? reject(e) : resolve())),
+      );
+    });
+    await measure(CALIBRATION_CPU, 5, async () => {
+      // Allocation, string work, sorting and Map lookups: the mix our parsers and layout do.
+      const rows: string[] = [];
+      for (let i = 0; i < 200_000; i++) rows.push(`${(i * 2654435761) >>> 0} ${i % 97} subject number ${i}`);
+      const parsed = rows.map((r) => r.split(' '));
+      const m = new Map<string, number>();
+      for (const p of parsed) m.set(p[0]!, Number(p[1]));
+      const nums = Float64Array.from(m.values());
+      nums.sort();
+      if (nums.length !== m.size) throw new Error('calibration');
+    });
 
     await measure('worker spawn + first request', 3, async () => {
       const p = newPool();
