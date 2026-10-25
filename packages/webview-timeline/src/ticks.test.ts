@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FileRevision } from '@gvx/protocol';
-import { BUCKET_ABOVE, buildTicks, tickOf } from './ticks';
+import { BUCKET_ABOVE, buildTicks, tickOf, visibleLabels } from './ticks';
 
 const DAY = 86400;
 const rev = (i: number, time: number): FileRevision => ({ sha: i.toString(16).padStart(40, '0'), time, author: 'A', authorMail: 'a@x', subject: `r${i}`, path: 'f' });
@@ -36,5 +36,17 @@ describe('timeline ticks', () => {
   it('labels years on long histories', () => {
     const t = buildTicks(history(400, 7 * DAY), 'en-US'); // ~7.7 years
     expect(t.filter((x) => x.label).every((x) => /^\d{4}$/.test(x.label!))).toBe(true);
+  });
+});
+
+describe('visibleLabels', () => {
+  it('skips labels that would collide and keeps clear of the Now label', () => {
+    const t = buildTicks(history(500, DAY), 'en-US'); // ~17 month labels
+    const wide = visibleLabels(t, 2000);
+    const narrow = visibleLabels(t, 600);
+    expect(narrow.length).toBeLessThan(wide.length);
+    const xs = (idx: number[], w: number) => idx.map((i) => ((i + 0.5) / (t.length + 1)) * w);
+    for (const [a, b] of xs(narrow, 600).map((x, i, all) => [x, all[i + 1]] as const).slice(0, -1)) expect(b! - a).toBeGreaterThanOrEqual(72);
+    expect(Math.max(...xs(narrow, 600))).toBeLessThanOrEqual(600 - 54);
   });
 });

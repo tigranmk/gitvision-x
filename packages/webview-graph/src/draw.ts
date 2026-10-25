@@ -40,6 +40,8 @@ export interface DrawTheme {
 export interface DrawInput {
   /** CSS pixels. */
   width: number;
+  /** Lane pitch in CSS pixels (16, squeezed down to 6 on wide graphs). */
+  laneWidth: number;
   height: number;
   dpr: number;
   scrollTop: number;
@@ -58,12 +60,28 @@ export interface DrawInput {
   lineageColor: string;
 }
 
-export const laneX = (lane: number) => GRAPH_PAD + lane * LANE_WIDTH + LANE_WIDTH / 2;
+/** Narrowest lane pitch: below this, lanes past the column's edge are clipped instead. */
+export const MIN_LANE_WIDTH = 6;
+
+export const laneX = (lane: number, pitch = LANE_WIDTH) => GRAPH_PAD + lane * pitch + pitch / 2;
+
+/**
+ * Lane pitch and column width for `lanes` lanes in at most `maxWidth` px: 16 px lanes while they fit, then
+ * squeezed down to 6 px so every lane stays visible; past that, the column stays at `maxWidth` and lanes clip.
+ */
+export function laneLayout(lanes: number, maxWidth: number): { pitch: number; width: number } {
+  const n = Math.max(1, lanes);
+  const room = Math.max(MIN_LANE_WIDTH, maxWidth - GRAPH_PAD * 2);
+  const pitch = Math.max(MIN_LANE_WIDTH, Math.min(LANE_WIDTH, room / n));
+  return { pitch, width: Math.min(GRAPH_PAD * 2 + n * pitch, GRAPH_PAD * 2 + room) };
+}
 
 /** Width in CSS pixels of a graph column holding `lanes` lanes (capped so text keeps room). */
-export const graphWidth = (lanes: number, max = 24) => GRAPH_PAD * 2 + Math.max(1, Math.min(lanes, max)) * LANE_WIDTH;
 
 export function draw(ctx: Ctx, d: DrawInput): void {
+  const lx = (lane: number) => laneX(lane, d.laneWidth);
+  // Nodes shrink with squeezed lanes so neighbours do not touch.
+  const R = Math.min(NODE_RADIUS, d.laneWidth / 2 - 1);
   ctx.setTransform(d.dpr, 0, 0, d.dpr, 0, 0);
   ctx.clearRect(0, 0, d.width, d.height);
   const top = d.first * ROW_HEIGHT - d.scrollTop;
@@ -77,7 +95,7 @@ export function draw(ctx: Ctx, d: DrawInput): void {
     const y0 = top + i * ROW_HEIGHT;
     const yc = y0 + ROW_HEIGHT / 2;
     const y1 = y0 + ROW_HEIGHT;
-    const xn = laneX(row.lane);
+    const xn = lx(row.lane);
     for (let k = 0; k < row.edges.length; k++) {
       const e = row.edges[k]!;
       const kind = edgeKind(e);
@@ -85,19 +103,19 @@ export function draw(ctx: Ctx, d: DrawInput): void {
       const to = edgeTo(e);
       if (kind === EDGE_IN) {
         const p = paths[from % LANE_COLORS]!;
-        const xf = laneX(from);
+        const xf = lx(from);
         p.moveTo(xf, y0);
         if (from === to) p.lineTo(xn, yc);
         else p.bezierCurveTo(xf, yc, xf, yc, xn, yc);
       } else if (kind === EDGE_OUT) {
         const p = paths[to % LANE_COLORS]!;
-        const xt = laneX(to);
+        const xt = lx(to);
         p.moveTo(xn, yc);
         if (from === to) p.lineTo(xt, y1);
         else p.bezierCurveTo(xt, yc, xt, yc, xt, y1);
       } else {
         const p = paths[from % LANE_COLORS]!;
-        const x = laneX(from);
+        const x = lx(from);
         p.moveTo(x, y0);
         p.lineTo(x, y1);
       }
@@ -125,12 +143,12 @@ export function draw(ctx: Ctx, d: DrawInput): void {
     const row = d.rows[i];
     if (!row) continue;
     const r = d.first + i;
-    const x = laneX(row.lane);
+    const x = lx(row.lane);
     const y = top + i * ROW_HEIGHT + ROW_HEIGHT / 2;
     const color = d.theme.lanes[row.lane % LANE_COLORS]!;
     if (r === d.pulseRow && d.pulse < 1) {
       ctx.beginPath();
-      ctx.arc(x, y, NODE_RADIUS + 2 + 6 * d.pulse, 0, Math.PI * 2);
+      ctx.arc(x, y, R + 2 + 6 * d.pulse, 0, Math.PI * 2);
       ctx.globalAlpha = 1 - d.pulse;
       ctx.fillStyle = d.pulseColor;
       ctx.fill();
@@ -140,7 +158,7 @@ export function draw(ctx: Ctx, d: DrawInput): void {
       // Not a commit yet: a dashed ring in the conflict colour.
       ctx.save();
       ctx.beginPath();
-      ctx.arc(x, y, NODE_RADIUS + 1, 0, Math.PI * 2);
+      ctx.arc(x, y, R + 1, 0, Math.PI * 2);
       ctx.fillStyle = d.theme.surface;
       ctx.fill();
       ctx.setLineDash([2, 2]);
@@ -151,7 +169,7 @@ export function draw(ctx: Ctx, d: DrawInput): void {
       continue;
     }
     ctx.beginPath();
-    ctx.arc(x, y, NODE_RADIUS, 0, Math.PI * 2);
+    ctx.arc(x, y, R, 0, Math.PI * 2);
     if (row.flags & ROW_MERGE) {
       // Merges are hollow: shape, not only colour, tells them apart (spec: colour is never the only cue).
       ctx.fillStyle = d.theme.surface;
@@ -170,14 +188,14 @@ export function draw(ctx: Ctx, d: DrawInput): void {
     }
     if (inLineage.has(r)) {
       ctx.beginPath();
-      ctx.arc(x, y, NODE_RADIUS + 3, 0, Math.PI * 2);
+      ctx.arc(x, y, R + 3, 0, Math.PI * 2);
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = d.lineageColor;
       ctx.stroke();
     }
     if (r === d.headRow) {
       ctx.beginPath();
-      ctx.arc(x, y, NODE_RADIUS + 2.5, 0, Math.PI * 2);
+      ctx.arc(x, y, R + 2.5, 0, Math.PI * 2);
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = d.theme.head;
       ctx.stroke();

@@ -6,6 +6,7 @@ describe('frame packing (D6)', () => {
   it('round-trips visible rows, keeping gaps for rows not loaded yet', () => {
     const input: DrawInput = {
       width: 120,
+      laneWidth: 16,
       height: 66,
       dpr: 2,
       scrollTop: 30,

@@ -26,6 +26,7 @@ function recorder() {
 
 const input = (contrastBorder: string | null): DrawInput => ({
   width: 40,
+  laneWidth: 16,
   height: 44,
   dpr: 1,
   scrollTop: 0,
@@ -64,5 +65,16 @@ describe('draw: high contrast', () => {
     const r = recorder();
     draw(r.ctx, input(null));
     expect(r.fills).toContain('#000'); // the merge's hollow centre (surface colour)
+  });
+});
+
+describe('laneLayout', () => {
+  it('keeps 16 px lanes while they fit, squeezes to 6 px, then clips', async () => {
+    const { laneLayout } = await import('./draw');
+    expect(laneLayout(5, 300)).toEqual({ pitch: 16, width: 88 });
+    const squeezed = laneLayout(25, 220);
+    expect(squeezed.pitch).toBeCloseTo(212 / 25, 5);
+    expect(squeezed.width).toBeCloseTo(220, 5);
+    expect(laneLayout(100, 220)).toEqual({ pitch: 6, width: 220 }); // 100 × 6 > 212: clipped at the edge
   });
 });

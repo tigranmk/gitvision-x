@@ -4,7 +4,7 @@
   import ConflictMap from './ConflictMap.svelte';
   import Details from './Details.svelte';
   import { readTheme, watchTheme, type CanvasTheme } from '@gvx/ui-tokens';
-  import { GRAPH_PAD, LANE_WIDTH, graphWidth, ROW_HEIGHT } from './draw';
+  import { GRAPH_PAD, laneLayout, ROW_HEIGHT } from './draw';
   import { laneStart } from './laneName';
   import { createRenderer, type GraphRenderer } from './renderer';
   import { PageCache } from './pageCache';
@@ -117,7 +117,11 @@
   const first = $derived(Math.max(0, Math.floor(scrollTop / ROW_HEIGHT)));
   const last = $derived(Math.min(rowCount - 1, Math.floor((scrollTop + viewHeight) / ROW_HEIGHT)));
   const visible = $derived(Array.from({ length: Math.max(0, last - first + 1) }, (_, i) => first + i));
-  const graphW = $derived(graphWidth(lanes));
+  let viewWidth = $state(0);
+  // The lane column takes at most a third of the list, so subjects always keep room; wide graphs squeeze
+  // their lanes (16 px down to 6 px) to fit, and only past that clip at the column's edge.
+  const lanePlan = $derived(laneLayout(lanes, Math.max(80, viewWidth / 3)));
+  const graphW = $derived(lanePlan.width);
 
   function apply(next: GraphState) {
     const repoChanged = next.root !== graph.root;
@@ -340,7 +344,10 @@
       }),
     ];
     rpc.request('graph.state', {}).then(apply, (e) => (error = (e as Error).message));
-    const ro = new ResizeObserver(() => (viewHeight = scroller.clientHeight));
+    const ro = new ResizeObserver(() => {
+      viewHeight = scroller.clientHeight;
+      viewWidth = scroller.clientWidth;
+    });
     ro.observe(scroller);
     window.addEventListener('keydown', onKeydown);
     return () => {
@@ -364,6 +371,7 @@
     if (!renderer || !theme) return;
     renderer.render({
       width: graphW,
+      laneWidth: lanePlan.pitch,
       height: viewHeight,
       dpr: devicePixelRatio || 1,
       scrollTop,
@@ -446,7 +454,7 @@
     const el = (e.target as HTMLElement).closest<HTMLElement>('[role=option]');
     if (x >= graphW || !el?.dataset.row) return void (laneTip = null);
     const r = Number(el.dataset.row);
-    const lane = Math.floor((x - GRAPH_PAD) / LANE_WIDTH);
+    const lane = Math.floor((x - GRAPH_PAD) / lanePlan.pitch);
     const start = laneStart(
       r,
       lane,
@@ -852,6 +860,20 @@
   }
   .lanes {
     flex: none;
+  }
+  /* Narrow lists drop the date, then the author, before the subject gets squeezed. */
+  .list {
+    container-type: inline-size;
+  }
+  @container (max-width: 760px) {
+    .date {
+      display: none;
+    }
+  }
+  @container (max-width: 520px) {
+    .author {
+      display: none;
+    }
   }
   .subject {
     flex: 1;

@@ -46,6 +46,8 @@ Select a block of code to see who wrote it and how old it is:
 
 ### Commit graph that follows your cursor
 
+![The commit graph with a commit's details and a file's micro-diff](media/screenshots/graph.png)
+
 Open **GitVision** in the panel (next to the Terminal), or **Open Graph Beside** to put it next to your
 editor. It stays smooth at 60 fps on repositories with 100,000+ commits.
 
@@ -68,6 +70,8 @@ editor. It stays smooth at 60 fps on repositories with 100,000+ commits.
 
 ### Time travel through a file's history
 
+![The time-travel slider over a file's 500 revisions](media/screenshots/timeline.png)
+
 Step a file back through every revision it has had, in the editor you're already in:
 
 - Click the **history** button in the editor title for a searchable list of revisions; moving through it
@@ -81,6 +85,8 @@ Step a file back through every revision it has had, in the editor you're already
 - From the blame hover, **Time travel** jumps straight to the revision that changed the line.
 
 ### Merge and rebase conflicts
+
+![The conflict map: a rebase in progress, with progress, files and Continue / Skip / Abort](media/screenshots/conflicts.png)
 
 When a merge, rebase, cherry-pick or revert stops with conflicts:
 
@@ -106,6 +112,8 @@ When a merge, rebase, cherry-pick or revert stops with conflicts:
 1. Install the extension.
 2. Open a folder that is a git repository.
 3. Click any line in a file that git tracks.
+
+The walkthrough (**Help → Welcome → Get started with GitVision X**) shows each feature in a minute.
 
 It works with VS Code's built-in Git support and uses the same `git` executable. There's nothing to
 configure.
@@ -182,7 +190,8 @@ don't see blame twice. Nothing else in GitLens is changed, and you can decline.
 - Files over 20,000 lines are only blamed on request (**GitVision: Blame This File**). Binary files are
   not blamed.
 - Repositories using SHA-256 object names are not supported yet.
-- The graph shows up to 24 branch lanes side by side; further lanes are cut off at the edge.
+- On very wide histories (more than about 40 branches side by side in a narrow panel) the lanes at the right
+  edge are cut off.
 - Message search covers commit subjects, not full message bodies.
 - The first time a repository with 100,000 commits is indexed, the graph appears after about a second
   (git reads every commit once). After that the index is reused and the graph opens in about 0.3 s.

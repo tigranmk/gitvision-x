@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { relativeTime, type EventMap, type NoMethods, type RpcEndpoint, type TimelineHostEvents, type TimelineHostMethods, type TimelinePosition, type TimelineRevisions } from '@gvx/protocol';
-  import { buildTicks, tickOf, BUCKET_ABOVE } from './ticks';
+  import { buildTicks, tickOf, visibleLabels, BUCKET_ABOVE } from './ticks';
 
   let { rpc }: { rpc: RpcEndpoint<NoMethods, TimelineHostMethods, EventMap, TimelineHostEvents> } = $props();
 
@@ -13,6 +13,10 @@
   const now = Math.floor(Date.now() / 1000);
 
   const ticks = $derived(revs ? buildTicks(revs.revisions) : []);
+  let trackWidth = $state(0);
+  const labelled = $derived(new Set(visibleLabels(ticks, trackWidth)));
+  /** Under ~4 px per tick, ticks thin to 1 px so the track stays readable. */
+  const dense = $derived(trackWidth > 0 && trackWidth / (ticks.length + 1) < 4);
   const bucketed = $derived((revs?.revisions.length ?? 0) > BUCKET_ABOVE);
   const shownIndex = $derived(dragIndex ?? pos.index);
   const thumbTick = $derived(tickOf(ticks, shownIndex));
@@ -145,6 +149,8 @@
     <div
       class="track"
       bind:this={track}
+      bind:clientWidth={trackWidth}
+      class:dense
       role="slider"
       tabindex="0"
       aria-label="Revision of {fileName(pos.file)}"
@@ -160,7 +166,7 @@
       <div class="rail"></div>
       {#each ticks as t, i (t.first)}
         <div class="tick" class:bucket={t.last > t.first} class:pinned={!!pos.pinned && revs?.revisions[t.index]?.sha === pos.pinned} style:left={x(i)} title={tickTitle(i)}></div>
-        {#if t.label}<div class="label" style:left={x(i)}>{t.label}</div>{/if}
+        {#if labelled.has(i)}<div class="label" class:first={i === 0} style:left={x(i)}>{t.label}</div>{/if}
       {/each}
       <div class="tick now" style:left={x(ticks.length)} title="Working copy"></div>
       <div class="label now-label" style:left={x(ticks.length)}>Now</div>
@@ -266,6 +272,11 @@
     background: var(--gvx-text-muted);
     border-radius: 1px;
   }
+  .track.dense .tick:not(.now):not(.pinned) {
+    width: 1px;
+    margin-left: 0;
+    opacity: 0.7;
+  }
   .tick.bucket {
     width: 4px;
     margin-left: -2px;
@@ -282,6 +293,12 @@
     position: absolute;
     top: 26px;
     transform: translateX(-50%);
+  }
+  /* The first label starts at its tick instead of centring on it, so it is not cut off at the left edge. */
+  .label.first {
+    transform: none;
+  }
+  .label {
     font-size: 0.85em;
     color: var(--gvx-text-muted);
     white-space: nowrap;

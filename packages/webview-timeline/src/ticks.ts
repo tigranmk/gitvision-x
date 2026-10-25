@@ -50,6 +50,26 @@ export function buildTicks(revisions: FileRevision[], locale?: string): Tick[] {
   return ticks;
 }
 
+/**
+ * Which date labels to draw on a track `width` px wide: a label needs about `labelPx` of room, so labels that
+ * would collide with the previous one drawn are skipped (the boundary tick stays). Returns tick indices.
+ */
+export function visibleLabels(ticks: Tick[], width: number, labelPx = 72): number[] {
+  const slots = ticks.length + 1;
+  const out: number[] = [];
+  let lastX = -Infinity;
+  ticks.forEach((t, i) => {
+    if (!t.label) return;
+    const x = ((i + 0.5) / slots) * width;
+    // Keep clear of the "Now" label at the right end too.
+    if (x - lastX >= labelPx && width - x >= labelPx * 0.75) {
+      out.push(i);
+      lastX = x;
+    }
+  });
+  return out;
+}
+
 /** The tick that contains revision `index` (-1 for the working copy). */
 export function tickOf(ticks: Tick[], index: number): number {
   if (index < 0) return ticks.length; // "Now", right of the last tick

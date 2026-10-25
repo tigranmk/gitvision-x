@@ -454,6 +454,61 @@
         "key": "escape",
         "when": "editorTextFocus && resourceScheme == gitvision && !suggestWidgetVisible && !findWidgetVisible && !inSnippetMode"
       }
+    ],
+    "walkthroughs": [
+      {
+        "id": "gitvision.start",
+        "title": "Get started with GitVision X",
+        "description": "Blame, the commit graph, time travel and conflict resolution, in four short steps.",
+        "steps": [
+          {
+            "id": "blame",
+            "title": "See who changed a line",
+            "description": "Open a file in a git repository and click a line.\n[Open a File](command:workbench.action.quickOpen)",
+            "media": {
+              "markdown": "media/walkthrough/blame.md"
+            },
+            "completionEvents": [
+              "onCommand:workbench.action.quickOpen"
+            ]
+          },
+          {
+            "id": "graph",
+            "title": "Open the commit graph",
+            "description": "The graph follows your cursor through history.\n[Show the Graph](command:gitvision.graph.focus)",
+            "media": {
+              "markdown": "media/walkthrough/graph.md"
+            },
+            "completionEvents": [
+              "onView:gitvision.graph",
+              "onCommand:gitvision.graph.focus"
+            ]
+          },
+          {
+            "id": "timeTravel",
+            "title": "Travel through a file's history",
+            "description": "Step the open file back through its versions.\n[Browse File History](command:gitvision.timeTravel.pick)",
+            "media": {
+              "markdown": "media/walkthrough/timeTravel.md"
+            },
+            "completionEvents": [
+              "onCommand:gitvision.timeTravel.pick",
+              "onView:gitvision.timeline"
+            ]
+          },
+          {
+            "id": "conflicts",
+            "title": "Resolve conflicts with context",
+            "description": "Next time a merge or rebase stops, resolve each conflict in place.",
+            "media": {
+              "markdown": "media/walkthrough/conflicts.md"
+            },
+            "completionEvents": [
+              "onStepSelected"
+            ]
+          }
+        ]
+      }
     ]
   },
   "scripts": {

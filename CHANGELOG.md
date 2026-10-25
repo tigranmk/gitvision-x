@@ -2,6 +2,11 @@
 
 ## Unreleased — commit graph, time travel and conflict resolution
 
+- **Getting started walkthrough** and screenshots.
+- **Accessibility:** hovering a lane names its branch; high-contrast themes outline rows and chips; buttons
+  that can't run yet stay reachable by keyboard and say why; reduced motion turns animations off.
+- **Wide graphs** squeeze their lanes to fit instead of cutting them off; narrow panels hide the date and
+  author columns before the commit message.
 - **Conflicts:** accept current / incoming / both, pick lines, compare and explain each conflict, with who
   changed it on each side; cards for delete/modify, rename/rename and binary conflicts; open in the 3-way
   merge editor; a conflict map in the graph with progress and Continue / Skip / Abort; the rebase step

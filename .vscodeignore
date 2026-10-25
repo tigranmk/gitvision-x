@@ -1,10 +1,13 @@
 **
-!dist/**
+!dist/**/*.js
+!dist/**/*.css
+!dist/**/*.ttf
 !media/icon.png
 !media/heat-*.svg
 !media/graph.svg
+!media/screenshots/*.png
+!media/walkthrough/*.md
 !package.json
 !README.md
 !CHANGELOG.md
 !LICENSE
-dist/**/*.map

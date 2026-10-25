@@ -72,7 +72,7 @@ test('keyboard reaches the conflict map’s files, cards and operation buttons',
   });
   await page.locator('[role=option]').first().click();
   const map = page.locator('aside.conflict-map');
-  await expect(map.locator('p')).toContainText('Step 2 of 5');
+  await expect(map.locator('p')).toHaveText('Step 2 of 5 · 1 conflict left');
   // From the close button, Tab walks the file, its card and the operation buttons; Enter activates.
   await map.getByRole('button', { name: 'Close' }).focus();
   const seen: string[] = [];

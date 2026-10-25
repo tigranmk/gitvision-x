@@ -54,7 +54,7 @@
     <div class="head">
       <h2>{title}</h2>
       <p class="muted">
-        {#if conflict.rebase}Step {conflict.rebase.step} of {conflict.rebase.total} · {/if}{left ? `${left} conflict${left === 1 ? '' : 's'} left` : 'All conflicts resolved'}
+        {conflict.rebase ? `Step ${conflict.rebase.step} of ${conflict.rebase.total} · ` : ''}{left ? `${left} conflict${left === 1 ? '' : 's'} left` : 'All conflicts resolved'}
       </p>
     </div>
     <button class="icon" title="Close" aria-label="Close" onclick={onClose}><i class="codicon codicon-close"></i></button>
