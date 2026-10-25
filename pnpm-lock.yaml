@@ -20,6 +20,9 @@ importers:
       '@gvx/ui-tokens':
         specifier: workspace:*
         version: link:packages/ui-tokens
+      '@gvx/webview-shared':
+        specifier: workspace:*
+        version: link:packages/webview-shared
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -88,6 +91,8 @@ importers:
   packages/ui-tokens: {}
 
   packages/webview-graph: {}
+
+  packages/webview-shared: {}
 
 packages:
 

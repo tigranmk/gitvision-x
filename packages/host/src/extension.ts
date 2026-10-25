@@ -13,6 +13,10 @@ import { registerCommitGraphOffer } from './commitGraphOffer';
 import { offerGitLensCoexistence } from './gitlens';
 import { GraphActions } from './graph/actions';
 import { GraphViews } from './graph/graphViews';
+import { registerTimeTravelCommands } from './timeTravel/commands';
+import { TimeTravelController } from './timeTravel/controller';
+import { registerRevisionFs } from './timeTravel/revisionFs';
+import { TimelineView } from './timeTravel/timelineView';
 import { enableTestAnswers, queueAnswers, shownPrompts } from './ui';
 import { RepoRegistry } from './repoRegistry';
 import { SelectionStore } from './selectionStore';
@@ -73,6 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
   let blame: BlameController | undefined;
   let graph: GraphViews | undefined;
   let actions: GraphActions | undefined;
+  let timeTravel: TimeTravelController | undefined;
 
   // Discovery and blame run after activation returns.
   setTimeout(() => {
@@ -85,7 +90,17 @@ export function activate(context: vscode.ExtensionContext) {
     blame = new BlameController(context, pool, repos, selection, () => gitApi, log);
     actions = new GraphActions(pool, repos, () => gitApi);
     graph = new GraphViews(context.extensionUri, pool, repos, selection, () => blame, () => gitApi, actions);
-    context.subscriptions.push(actions);
+    timeTravel = new TimeTravelController(pool, repos);
+    context.subscriptions.push(
+      actions,
+      registerRevisionFs(pool),
+      timeTravel,
+      registerTimeTravelCommands(timeTravel),
+      new TimelineView(context.extensionUri, timeTravel, repos),
+      // The pinned revision is the selection model's compareTo (spec: one selection model for every surface).
+      timeTravel.onDidChange((s) => selection.update({ compareTo: s?.pinned?.sha ?? null })),
+      vscode.commands.registerCommand('gitvision.graph.reveal', (a: { root: string; sha: string }) => graph?.reveal(a.root, a.sha)),
+    );
     context.subscriptions.push(blame.store.onDidLoad(() => graph?.blameLoaded()));
     context.subscriptions.push(blame, graph, registerCommitGraphOffer(context, pool, repos, log));
     const tryOpen = (dir: string) => repos.open(dir).catch((e) => log.error(`Could not open ${dir}: ${(e as Error).message}`));
@@ -114,6 +129,17 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
       vscode.commands.registerCommand('gitvision._test.answer', (...a: (string | undefined)[]) => queueAnswers(...a)),
       vscode.commands.registerCommand('gitvision._test.prompts', () => shownPrompts.splice(0)),
+      vscode.commands.registerCommand('gitvision._test.openRepo', (dir: string) => repos.open(dir)),
+      vscode.commands.registerCommand('gitvision._test.timeTravel', () => ({
+        session: timeTravel?.session && {
+          root: timeTravel.session.root,
+          path: timeTravel.session.path,
+          index: timeTravel.session.index,
+          count: timeTravel.session.revisions.length,
+          pinned: timeTravel.session.pinned,
+        },
+        lastStep: timeTravel?.lastStep,
+      })),
       vscode.commands.registerCommand('gitvision._test.openCommit', (root: string, sha: string) => actions?.openCommit(root, sha)),
       vscode.commands.registerCommand('gitvision._test.dropBranch', (d: Parameters<GraphActions['dropBranch']>[0]) => actions?.dropBranch(d)),
       vscode.commands.registerCommand('gitvision._test.state', () => ({

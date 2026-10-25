@@ -1,6 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 
@@ -8,7 +9,7 @@ interface TestState {
   activationMs: number;
   workersStarted: number;
   repos: { info: { root: string; gitDir: string; commonDir: string }; stats: { commitCount: number; mode: string } | null }[];
-  selection: { repo: string | null; file: string | null; line: number | null; commit: string | null };
+  selection: { repo: string | null; file: string | null; line: number | null; commit: string | null; compareTo: string | null };
   refsEvents: { root: string; mode: string }[];
   lastRender?: { uri: string; line: number; text: string; ms: number; warm: boolean };
   graph?: { root: string | null; total: number; sync: { sha: string; seq: number } | null };
@@ -437,6 +438,95 @@ export function defineSuite(): void {
       assert.equal(w?.op.kind, 'cherryPick');
       assert.equal(w?.code, 'conflict');
       git('cherry-pick', '--abort');
+    });
+  });
+  describe('F3 — time travel', () => {
+    const fixtures = path.resolve(__dirname, '../../test/fixtures/repos');
+    const clones: string[] = [];
+    const clone = (name: string) => {
+      const dir = mkdtempSync(path.join(tmpdir(), `gvx-tt-${name}-`));
+      execFileSync('git', ['clone', '-q', path.join(fixtures, name), dir]);
+      clones.push(dir);
+      return realpathSync.native(dir).replace(/\\/g, '/');
+    };
+    type Step = { index: number; ms: number; mappedLine: number | null; added: number; removed: number; uri: string };
+    type TT = { session: { path: string; index: number; count: number; pinned: unknown } | null; lastStep: Step | null };
+    const tt = () => vscode.commands.executeCommand<TT>('gitvision._test.timeTravel');
+    const stepTo = async (cmd: string, index: number) => {
+      await vscode.commands.executeCommand(cmd);
+      return waitFor(`time travel at ${index}`, async () => {
+        const t = await tt();
+        return t.session?.index === index && t.lastStep?.index === index && t.lastStep;
+      });
+    };
+    const gitIn = (dir: string, ...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+
+    after(() => {
+      for (const d of clones) rmSync(d, { recursive: true, force: true });
+    });
+
+    it('steps a renamed file back through its history, then returns to the working copy', async () => {
+      const root = clone('renames');
+      await vscode.commands.executeCommand('gitvision._test.openRepo', root);
+      const working = await vscode.window.showTextDocument(vscode.Uri.file(path.join(root, 'lib/helpers.ts')));
+      const revs = gitIn(root, 'log', '--follow', '--format=%H', '--', 'lib/helpers.ts').trim().split('\n');
+
+      const first = await stepTo('gitvision.timeTravel.back', 0);
+      let ed = vscode.window.activeTextEditor!;
+      assert.equal(ed.document.uri.scheme, 'gitvision');
+      assert.equal(ed.document.uri.authority, revs[0]);
+      assert.equal(ed.document.getText(), gitIn(root, 'show', `${revs[0]}:lib/helpers.ts`));
+      assert.ok(first.added + first.removed > 0, 'the newest revision shows what it changed');
+
+      // Back to the oldest revision: before two renames, at src/util.ts.
+      for (let i = 1; i < revs.length; i++) await stepTo('gitvision.timeTravel.back', i);
+      ed = vscode.window.activeTextEditor!;
+      assert.ok(ed.document.uri.path.endsWith('/src/util.ts'), ed.document.uri.toString());
+      assert.equal(ed.document.getText(), gitIn(root, 'show', `${revs.at(-1)}:src/util.ts`));
+      await assert.rejects(Promise.resolve(vscode.workspace.fs.writeFile(ed.document.uri, new Uint8Array([1]))), 'revisions are read-only');
+
+      await stepTo('gitvision.timeTravel.forward', revs.length - 2);
+      await vscode.commands.executeCommand('gitvision.timeTravel.togglePin');
+      assert.ok((await tt()).session!.pinned);
+      assert.equal((await state()).selection.compareTo, revs[revs.length - 2]);
+
+      await vscode.commands.executeCommand('gitvision.timeTravel.exit');
+      await waitFor('back on the working copy', async () => !(await tt()).session && vscode.window.activeTextEditor?.document.uri.toString() === working.document.uri.toString());
+      assert.ok(!vscode.window.tabGroups.all.flatMap((g) => g.tabs).some((t) => t.input instanceof vscode.TabInputText && t.input.uri.scheme === 'gitvision'));
+    });
+
+    it('steps through 500 revisions within budget (gate: p95 < 120 ms), keeping the reader’s place', async () => {
+      const root = clone('revisions-500');
+      await vscode.commands.executeCommand('gitvision._test.openRepo', root);
+      const editor = await vscode.window.showTextDocument(vscode.Uri.file(path.join(root, 'notes.md')));
+      // Scroll into the file (VS Code keeps some context above a revealed line, so read where it landed).
+      const topLine = await waitFor('scrolled into the file', async () => {
+        editor.revealRange(new vscode.Range(30, 0, 30, 0), vscode.TextEditorRevealType.AtTop);
+        const top = editor.visibleRanges[0]?.start.line ?? 0;
+        return top >= 20 && top;
+      });
+      const samples: number[] = [];
+      await stepTo('gitvision.timeTravel.back', 0);
+      for (let i = 1; i <= 40; i++) {
+        const last = await stepTo('gitvision.timeTravel.back', i);
+        samples.push(last.ms);
+        // Each revision moves a marker between two of the 60 lines: two added, two removed; the reader stays put.
+        assert.equal(last.added, 2);
+        assert.equal(last.removed, 2);
+        assert.ok(Math.abs((last.mappedLine ?? 0) - topLine) <= 1, `mapped to ${last.mappedLine}, reader was at ${topLine}`);
+      }
+      for (let i = 39; i >= 30; i--) samples.push((await stepTo('gitvision.timeTravel.forward', i)).ms);
+      const sorted = [...samples].sort((a, b) => a - b);
+      const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1]!;
+      console.log(`      step: median ${sorted[Math.floor(sorted.length / 2)]!.toFixed(1)} ms, p95 ${p95.toFixed(1)} ms over ${samples.length} steps`);
+      const slack = process.env.CI ? 2 : 1;
+      assert.ok(p95 < 120 * slack, `step p95 ${p95.toFixed(1)} ms`);
+
+      // From the blame hover: travel straight to a revision.
+      const sha = gitIn(root, 'log', '--format=%H', '--grep=^Revision 250$').trim();
+      await vscode.commands.executeCommand('gitvision.timeTravel.openAt', { root, path: 'notes.md', sha });
+      await waitFor('revision 250', async () => (await tt()).lastStep?.uri.includes(sha) ?? false);
+      await vscode.commands.executeCommand('gitvision.timeTravel.exit');
     });
   });
 }

@@ -218,6 +218,33 @@ export interface RepoWriteResult {
   output: string;
 }
 
+/** One revision of a file (time-travel), newest first. */
+export interface FileRevision {
+  sha: string;
+  /** Unix seconds (author date). */
+  time: number;
+  author: string;
+  authorMail: string;
+  subject: string;
+  /** The file's path at this revision (differs from the current path before a rename). */
+  path: string;
+}
+
+/** A revision of a file as time-travel shows it: its text and what changed against the comparison revision. */
+export interface RevisionView {
+  text: string;
+  /** 0-based lines of `text` that are new or changed since the comparison revision. */
+  added: number[];
+  /** Lines removed since the comparison revision, each group placed after a line of `text` (-1: before the first). */
+  removed: { after: number; lines: string[] }[];
+  /** `mapFrom.line` carried into this revision through the diff (null when no mapFrom). */
+  mappedLine: number | null;
+  binary: boolean;
+  tooLarge: boolean;
+}
+
+export type RevisionRef = { sha: string; path: string };
+
 /** Files above this many lines are blamed on demand only (spec F1). */
 export const AUTO_BLAME_MAX_LINES = 20_000;
 
@@ -246,6 +273,20 @@ export type EngineMethods = {
   'commit.details': MethodSpec<{ root: string; sha: string }, CommitDetails>;
   /** Side-by-side diff of one file of a commit against its first parent, at most `maxRows` rows (default 40). */
   'commit.fileDiff': MethodSpec<{ root: string; sha: string; path: string; oldPath?: string; maxRows?: number }, MicroDiff>;
+  /** Every revision of a file, following renames (`git log --follow`), newest first. */
+  'file.revisions': MethodSpec<{ root: string; path: string }, FileRevision[]>;
+  /**
+   * A file at `rev`, diffed against `against` (the previous or a pinned revision; null: no diff), with a
+   * line of what was shown before (`mapFrom`: a revision, or the working copy's text) mapped into it.
+   */
+  'file.revision': MethodSpec<
+    { root: string; rev: RevisionRef; against: RevisionRef | null; mapFrom?: { line: number } & (RevisionRef | { text: string }) },
+    RevisionView
+  >;
+  /** Raw bytes of a file at a revision (the gitvision: file system). */
+  'file.blob': MethodSpec<{ root: string; rev: RevisionRef }, { bytes: Uint8Array }>;
+  /** Loads revisions into the worker's cache ahead of use (time-travel prefetch). */
+  'file.prefetch': MethodSpec<{ root: string; revs: RevisionRef[] }, null>;
   'repo.write': MethodSpec<{ root: string; op: RepoWriteOp }, RepoWriteResult>;
   /** Files changed between two commits (`from` → `to`), like a commit's file list. */
   'commit.compare': MethodSpec<{ root: string; from: string; to: string }, CommitFile[]>;

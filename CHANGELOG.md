@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased — commit graph
+## Unreleased — commit graph and time travel
+
+- **Time travel:** step a file through its history in place (<kbd>Alt</kbd>+<kbd>[</kbd> / <kbd>Alt</kbd>+<kbd>]</kbd>,
+  a slider in the panel, or a searchable list from the editor title). Added lines are tinted, removed lines
+  shown in red, your place in the code kept; pin a revision to compare against it; renames followed.
+- **Blame hover:** new **Time travel** and **Show in graph** links.
 
 - **Commit graph** in the panel, or beside the editor. Smooth at 60 fps on 100,000+ commits.
 - **Follows your cursor:** the current line's commit is highlighted as you move, and the line's whole

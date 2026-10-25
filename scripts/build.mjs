@@ -26,7 +26,7 @@ const targets = [
   { ...common, entryPoints: ['packages/git-engine/src/worker.ts'], outfile: 'dist/worker.js' },
 ];
 
-const webviews = ['packages/webview-graph/vite.config.ts'];
+const webviews = ['packages/webview-graph/vite.config.ts', 'packages/webview-timeline/vite.config.ts'];
 const viteBuild = (configFile) =>
   vite({ configFile, mode: production ? 'production' : 'development', logLevel: 'warn', build: watch ? { watch: {} } : {} });
 

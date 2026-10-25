@@ -15,6 +15,11 @@ import {
   type GraphHostEvents,
   type GraphHostMethods,
   type GraphState,
+  type MethodMap,
+  type FileRevision,
+  type TimelineHostEvents,
+  type TimelineHostMethods,
+  type TimelinePosition,
   type NoMethods,
   type WireMessage,
 } from '@gvx/protocol';
@@ -96,44 +101,39 @@ export interface OpenOptions {
   storageDir?: string;
 }
 
-export async function openGraph(page: Page, fixture: string, opts: OpenOptions = {}): Promise<Harness> {
-  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: path.join(FIXTURES, fixture), encoding: 'utf8' }).trim();
-  const storage = opts.storageDir ?? mkdtempSync(path.join(tmpdir(), 'gvx-e2e-'));
-  const pool = new WorkerPool({ workerPath: path.join(ROOT, 'dist/worker.js'), gitPath: 'git' });
-  const syncStarted = performance.now();
-  const stats = await pool.request('index.sync', { root, storageDir: storage }, { affinity: root });
-  const syncMs = performance.now() - syncStarted;
-  const state: GraphState = { root, total: stats.commitCount, userEmail: 'dev0@example.com', sync: null, activeFile: null };
-  const requests: Harness['requests'] = [];
+export interface Bridge<Local extends MethodMap, Push extends EventMap> {
+  host: RpcEndpoint<Local, NoMethods, Push, EventMap>;
+  /** Wire messages the webview sent (requests only). */
+  requests: { method: string; params: unknown }[];
+  cspViolations: string[];
+  /** Uncaught errors in the page. */
+  pageErrors: string[];
+}
+
+/**
+ * Loads dist/webviews/<name> as VS Code would (same HTML and CSP, theme variables), with acquireVsCodeApi()
+ * bridged to a host RpcEndpoint here; `register` installs the host's handlers before the page loads.
+ */
+export async function loadWebview<Local extends MethodMap, Push extends EventMap>(
+  page: Page,
+  name: string,
+  register: (host: RpcEndpoint<Local, NoMethods, Push, EventMap>) => void,
+  opts: OpenOptions = {},
+): Promise<Bridge<Local, Push>> {
+  const requests: { method: string; params: unknown }[] = [];
   const cspViolations: string[] = [];
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
   let deliver: ((msg: WireMessage) => void) | null = null;
-  const host: HostRpc = new RpcEndpoint({
+  const host = new RpcEndpoint<Local, NoMethods, Push, EventMap>({
     post: (msg) => void page.evaluate((m) => (window as unknown as { __gvxDeliver(m: unknown): void }).__gvxDeliver(m), encode(msg)).catch(() => {}),
     onMessage: (handler) => {
       deliver = handler;
       return () => (deliver = null);
     },
   });
-  const clipboard: string[] = [];
-  const diffsOpened: Harness['diffsOpened'] = [];
-  const drops: Harness['drops'] = [];
-  const fetches: string[] = [];
-  const commitsOpened: string[] = [];
-  const openFiles: string[] = [];
-  registerGraphMethods(host, {
-    pool,
-    state: () => state,
-    shown: () => root,
-    openFiles: () => openFiles,
-    writeClipboard: async (text) => void clipboard.push(text),
-    openDiff: async (a) => void diffsOpened.push(a),
-    dropBranch: async (a) => void drops.push(a),
-    fetchMore: async (r) => void fetches.push(r),
-    openCommit: async (_r, sha) => void commitsOpened.push(sha),
-  });
+  register(host);
 
   await page.exposeFunction('__gvxToHost', (m: unknown) => {
     const msg = decode(m) as WireMessage;
@@ -190,11 +190,11 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     { theme: opts.theme ?? DARK_THEME, bodyClass: opts.bodyClass ?? 'vscode-dark' },
   );
 
-  const bundle = path.join(ROOT, 'dist/webviews/graph');
+  const bundle = path.join(ROOT, 'dist/webviews', name);
   await page.route(`${ORIGIN}/**`, (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === '/') {
-      let html = webviewHtml({ cspSource: ORIGIN, nonce: 'e2e-nonce', asset: (n) => `${ORIGIN}/${n}`, name: 'graph', title: 'Git Graph' });
+      let html = webviewHtml({ cspSource: ORIGIN, nonce: 'e2e-nonce', asset: (n) => `${ORIGIN}/${n}`, name, title: name });
       if (opts.csp) html = html.replace(/content="([^"]*)"/, (_, c: string) => `content="${opts.csp!(c)}"`);
       return route.fulfill({ contentType: 'text/html', body: html });
     }
@@ -203,6 +203,39 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     return route.fulfill({ contentType: type, body: readFileSync(file) });
   });
   await page.goto(`${ORIGIN}/`);
+
+  return { host, requests, cspViolations, pageErrors };
+}
+
+export async function openGraph(page: Page, fixture: string, opts: OpenOptions = {}): Promise<Harness> {
+  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: path.join(FIXTURES, fixture), encoding: 'utf8' }).trim();
+  const storage = opts.storageDir ?? mkdtempSync(path.join(tmpdir(), 'gvx-e2e-'));
+  const pool = new WorkerPool({ workerPath: path.join(ROOT, 'dist/worker.js'), gitPath: 'git' });
+  const syncStarted = performance.now();
+  const stats = await pool.request('index.sync', { root, storageDir: storage }, { affinity: root });
+  const syncMs = performance.now() - syncStarted;
+  const state: GraphState = { root, total: stats.commitCount, userEmail: 'dev0@example.com', sync: null, activeFile: null };
+  const clipboard: string[] = [];
+  const diffsOpened: Harness['diffsOpened'] = [];
+  const drops: Harness['drops'] = [];
+  const fetches: string[] = [];
+  const commitsOpened: string[] = [];
+  const openFiles: string[] = [];
+  const { host, requests, cspViolations, pageErrors } = await loadWebview<GraphHostMethods, GraphHostEvents>(page, 'graph', (host) =>
+    registerGraphMethods(host, {
+    pool,
+    state: () => state,
+    shown: () => root,
+    openFiles: () => openFiles,
+    writeClipboard: async (text) => void clipboard.push(text),
+    openDiff: async (a) => void diffsOpened.push(a),
+    dropBranch: async (a) => void drops.push(a),
+    fetchMore: async (r) => void fetches.push(r),
+      openCommit: async (_r, sha) => void commitsOpened.push(sha),
+    }),
+    opts,
+  );
+
 
   return {
     page,
@@ -279,4 +312,84 @@ function decode(v: unknown): unknown {
     return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, decode(x)]));
   }
   return v;
+}
+
+export interface TimelineHarness extends Bridge<TimelineHostMethods, TimelineHostEvents> {
+  page: Page;
+  revisions: FileRevision[];
+  /** Indices the webview asked to show, in order. */
+  gos: number[];
+  /** Other requests by name (start, pin, pick, exit). */
+  calls: string[];
+  position: TimelinePosition;
+  /** Pushes a position to the view, as the extension does after each step. */
+  push(p: Partial<TimelinePosition>): void;
+  dispose(): Promise<void>;
+}
+
+/**
+ * The timeline webview against a fake host: revisions are real (`git log --follow` in the worker over a
+ * fixture); stepping is simulated by echoing the requested index back as the new position.
+ */
+export async function openTimeline(page: Page, fixture: string, file: string, opts: OpenOptions & { active?: boolean } = {}): Promise<TimelineHarness> {
+  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: path.join(FIXTURES, fixture), encoding: 'utf8' }).trim();
+  const pool = new WorkerPool({ workerPath: path.join(ROOT, 'dist/worker.js'), gitPath: 'git' });
+  const revisions = await pool.request('file.revisions', { root, path: file }, { affinity: root });
+  const h = {
+    gos: [] as number[],
+    calls: [] as string[],
+    position: { active: opts.active ?? true, file, index: -1, pinned: null, loading: null, session: 1 } as TimelinePosition,
+  };
+  let push: (p: TimelinePosition) => void = () => {};
+  const bridge = await loadWebview<TimelineHostMethods, TimelineHostEvents>(
+    page,
+    'timeline',
+    (host) => {
+      push = (p) => host.emit('timeline.position', p);
+      host.handle('timeline.position', () => h.position);
+      host.handle('timeline.revisions', () => (h.position.active ? { session: h.position.session, path: file, revisions } : null));
+      host.handle('timeline.go', ({ index }) => {
+        h.gos.push(index);
+        h.position = { ...h.position, index };
+        push(h.position);
+        return null;
+      });
+      host.handle('timeline.start', () => {
+        h.calls.push('start');
+        h.position = { ...h.position, active: true, index: 0, session: h.position.session + 1 };
+        push(h.position);
+        return true;
+      });
+      for (const m of ['timeline.pin', 'timeline.pick', 'timeline.exit'] as const) {
+        host.handle(m, () => {
+          h.calls.push(m.slice(9));
+          return null;
+        });
+      }
+    },
+    opts,
+  );
+  return {
+    ...bridge,
+    page,
+    revisions,
+    get gos() {
+      return h.gos;
+    },
+    get calls() {
+      return h.calls;
+    },
+    get position() {
+      return h.position;
+    },
+    push(p) {
+      h.position = { ...h.position, ...p };
+      push(h.position);
+    },
+    async dispose() {
+      bridge.host.dispose();
+      pool.dispose();
+      if (bridge.pageErrors.length) throw new Error(`Uncaught errors in the webview:\n${bridge.pageErrors.join('\n')}`);
+    },
+  };
 }

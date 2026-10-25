@@ -133,6 +133,43 @@
         "command": "gitvision.graph.copySha",
         "title": "Copy Commit SHA",
         "category": "GitVision"
+      },
+      {
+        "command": "gitvision.timeTravel.pick",
+        "title": "Time Travel: Browse File History…",
+        "category": "GitVision",
+        "icon": "$(history)"
+      },
+      {
+        "command": "gitvision.timeTravel.back",
+        "title": "Time Travel: Previous Revision",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.timeTravel.forward",
+        "title": "Time Travel: Next Revision",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.timeTravel.exit",
+        "title": "Time Travel: Return to Working Copy",
+        "category": "GitVision",
+        "icon": "$(close)"
+      },
+      {
+        "command": "gitvision.timeTravel.togglePin",
+        "title": "Time Travel: Pin Revision to Compare",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.timeTravel.openAt",
+        "title": "Time Travel to Revision",
+        "category": "GitVision"
+      },
+      {
+        "command": "gitvision.graph.reveal",
+        "title": "Show Commit in Graph",
+        "category": "GitVision"
       }
     ],
     "menus": {
@@ -176,6 +213,30 @@
         {
           "command": "gitvision.graph.copySha",
           "when": "false"
+        },
+        {
+          "command": "gitvision.timeTravel.openAt",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.graph.reveal",
+          "when": "false"
+        },
+        {
+          "command": "gitvision.timeTravel.back",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "gitvision.timeTravel.forward",
+          "when": "gitvision.timeTravel.active"
+        },
+        {
+          "command": "gitvision.timeTravel.exit",
+          "when": "gitvision.timeTravel.active"
+        },
+        {
+          "command": "gitvision.timeTravel.togglePin",
+          "when": "gitvision.timeTravel.active"
         }
       ],
       "view/title": [
@@ -226,6 +287,18 @@
           "when": "(webviewId == 'gitvision.graph' || webviewId == 'gitvision.graphPanel') && webviewSection == 'commit'",
           "group": "4_copy@1"
         }
+      ],
+      "editor/title": [
+        {
+          "command": "gitvision.timeTravel.pick",
+          "when": "resourceScheme == file && !gitvision.timeTravel.active || resourceScheme == gitvision",
+          "group": "navigation@90"
+        },
+        {
+          "command": "gitvision.timeTravel.exit",
+          "when": "resourceScheme == gitvision",
+          "group": "navigation@91"
+        }
       ]
     },
     "configuration": {
@@ -270,6 +343,13 @@
           "name": "Graph",
           "icon": "media/graph.svg",
           "contextualTitle": "GitVision"
+        },
+        {
+          "type": "webview",
+          "id": "gitvision.timeline",
+          "name": "Time Travel",
+          "icon": "media/graph.svg",
+          "contextualTitle": "GitVision"
         }
       ]
     },
@@ -284,20 +364,37 @@
           "highContrastLight": "charts.blue"
         }
       }
+    ],
+    "keybindings": [
+      {
+        "command": "gitvision.timeTravel.back",
+        "key": "alt+[",
+        "when": "editorTextFocus && (gitvision.timeTravel.active || resourceScheme == gitvision)"
+      },
+      {
+        "command": "gitvision.timeTravel.forward",
+        "key": "alt+]",
+        "when": "editorTextFocus && (gitvision.timeTravel.active || resourceScheme == gitvision)"
+      },
+      {
+        "command": "gitvision.timeTravel.exit",
+        "key": "escape",
+        "when": "editorTextFocus && resourceScheme == gitvision && !suggestWidgetVisible && !findWidgetVisible && !inSnippetMode"
+      }
     ]
   },
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:prod": "node scripts/build.mjs --production",
     "watch": "node scripts/build.mjs --watch",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/e2e-webview/tsconfig.json --noEmit && svelte-check --tsconfig packages/webview-graph/tsconfig.json --fail-on-warnings",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/e2e-webview/tsconfig.json --noEmit && svelte-check --tsconfig packages/webview-graph/tsconfig.json --fail-on-warnings && svelte-check --tsconfig packages/webview-timeline/tsconfig.json --fail-on-warnings",
     "lint": "eslint .",
     "test": "vitest run",
     "test:integration": "pnpm build:prod && node test/integration/run.mjs",
     "fixtures": "node scripts/fixtures.mjs",
     "bench": "node bench/run.mjs",
     "package": "pnpm build:prod && vsce package --no-dependencies",
-    "test:webview": "pnpm build && node scripts/fixtures.mjs --only wide-100k,small,worktrees,shallow && playwright test -c test/e2e-webview/playwright.config.ts"
+    "test:webview": "pnpm build && node scripts/fixtures.mjs --only wide-100k,small,worktrees,shallow,renames,revisions-500 && playwright test -c test/e2e-webview/playwright.config.ts"
   },
   "packageManager": "pnpm@10.33.2",
   "devDependencies": {
@@ -325,6 +422,7 @@
     "@gvx/git-engine": "workspace:*",
     "@gvx/host": "workspace:*",
     "@gvx/protocol": "workspace:*",
-    "@gvx/ui-tokens": "workspace:*"
+    "@gvx/ui-tokens": "workspace:*",
+    "@gvx/webview-shared": "workspace:*"
   }
 }

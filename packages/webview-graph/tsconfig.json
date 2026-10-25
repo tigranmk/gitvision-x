@@ -5,5 +5,5 @@
     "types": ["svelte"]
   },
   "exclude": [],
-  "include": ["src/**/*.ts", "src/**/*.svelte", "../ui-tokens/src/**/*.ts", "../protocol/src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "../ui-tokens/src/**/*.ts", "../protocol/src/**/*.ts", "../webview-shared/src/**/*.ts"]
 }

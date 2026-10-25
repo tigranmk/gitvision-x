@@ -5,3 +5,4 @@ export * from './events';
 export * from './graph';
 export * from './graphView';
 export * from './time';
+export * from './timelineView';

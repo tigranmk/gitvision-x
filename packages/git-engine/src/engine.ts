@@ -8,6 +8,7 @@ import { IndexStore } from './indexStore';
 import { commitDetails, parseRawNumstat } from './commitDetails';
 import { repoWrite } from './repoWrite';
 import { fileMicroDiff } from './microDiff';
+import { RevisionStore, fileRevisions } from './fileHistory';
 import { readRefs, resolveRepo } from './repo';
 
 export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, EngineEvents, EventMap>): void {
@@ -79,6 +80,21 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
   rpc.handle('commit.fileDiff', ({ root, sha, path, oldPath, maxRows }, { signal }) =>
     fileMicroDiff(ready().git, root, sha, path, oldPath, maxRows, signal),
   );
+
+  let revisions: RevisionStore | null = null;
+  const revStore = () => (revisions ??= new RevisionStore(ready().git));
+  rpc.handle('file.revisions', ({ root, path }, { signal }) => fileRevisions(ready().git, root, path, signal));
+  rpc.handle('file.revision', ({ root, rev, against, mapFrom }, { signal }) => revStore().view(root, rev, against, mapFrom, signal));
+  rpc.handle('file.blob', async ({ root, rev }, { signal }) => {
+    const b = await revStore().blob(root, rev, signal);
+    if (!b) throw Object.assign(new Error(`${rev.path} does not exist at ${rev.sha.slice(0, 7)}`), { code: 'not-found' });
+    return { bytes: b.bytes.slice() };
+  });
+  rpc.handle('file.prefetch', async ({ root, revs }) => {
+    // Not cancelled with the request: the point is to have them cached when the user steps there.
+    await Promise.all(revs.map((r) => revStore().blob(root, r).catch(() => null)));
+    return null;
+  });
 
   rpc.handle('repo.write', ({ root, op }) => repoWrite(ready().git, root, op));
 

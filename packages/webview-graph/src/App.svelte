@@ -306,6 +306,9 @@
       rpc.on('graph.openFiles', (o) => {
         if (o.root === graph.root) openFiles = new Set(o.paths);
       }),
+      rpc.on('graph.select', (sel) => {
+        if (sel.root === graph.root) void jumpTo(sel.sha);
+      }),
       rpc.on('graph.activeFile', (a) => {
         if (a.root === graph.root) graph = { ...graph, activeFile: a.path };
       }),

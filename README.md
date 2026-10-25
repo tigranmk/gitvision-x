@@ -6,8 +6,8 @@ GitVision X shows git blame for the line your cursor is on, quietly and fast, an
 follows your cursor. Hover the blame to see the line's history. It's one free extension with no CodeLens
 clutter and no paywalled views.
 
-> **Preview.** Inline blame and the commit graph are ready to use. The time-travel slider and conflict
-> resolution are still in development (see [Roadmap](#roadmap)).
+> **Preview.** Inline blame, the commit graph and the time-travel slider are ready to use. Conflict
+> resolution is still in development (see [Roadmap](#roadmap)).
 
 ## Features
 
@@ -66,6 +66,20 @@ editor. It stays smooth at 60 fps on repositories with 100,000+ commits.
 - **Keyboard:** ↑/↓, Page Up/Down, Home/End to move, Space to show details, Enter to open the commit's
   changes, Escape to close the details.
 
+### Time travel through a file's history
+
+Step a file back through every revision it has had, in the editor you're already in:
+
+- Click the **history** button in the editor title for a searchable list of revisions; moving through it
+  previews each one. Or open **Time Travel** in the GitVision panel and drag the slider.
+- <kbd>Alt</kbd>+<kbd>[</kbd> and <kbd>Alt</kbd>+<kbd>]</kbd> step back and forward; <kbd>Escape</kbd>
+  returns to your working copy.
+- Lines added in each revision are tinted; removed lines appear as red text where they were (hover for all
+  of them). You stay at the same place in the code as you step.
+- **Pin** a revision to compare every later step against it instead of the one before.
+- Renames are followed: older revisions show the file under its old name.
+- From the blame hover, **Time travel** jumps straight to the revision that changed the line.
+
 ### Optional extras
 
 - **Gutter heatmap:** colours the gutter by line age, from warm (recent) to cool (old).
@@ -87,6 +101,7 @@ Open the Command Palette (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P
 | Command | What it does |
 |---|---|
 | **GitVision: Open Graph Beside** | Opens the commit graph next to the editor. |
+| **GitVision: Time Travel: Browse File History…** | Lists the active file's revisions and previews them as you move. |
 | **GitVision: Toggle Inline Blame** | Turns the current-line blame on or off. |
 | **GitVision: Blame This File** | Blames a file over 20,000 lines, which is skipped automatically. |
 | **GitVision: Show Commit Index Stats** | Shows how many commits are indexed for each open repository. |
@@ -128,6 +143,7 @@ don't see blame twice. Nothing else in GitLens is changed, and you can decline.
   shallow clone (a normal `git fetch`, with your own credentials).
 - It keeps a commit index and a blame cache in VS Code's extension storage on your machine. The blame
   cache is capped at 256 MB.
+- Time travel only reads: revisions open read-only and are never written to disk.
 - It changes your repository only when you ask: a graph action you confirmed (checkout, branch, tag,
   cherry-pick, revert, reset, merge, rebase), or the commit-graph file if you accept that offer.
 
@@ -160,7 +176,7 @@ don't see blame twice. Nothing else in GitLens is changed, and you can decline.
 |---|---|
 | Inline blame with line history | Available (preview) |
 | Commit graph that follows your cursor | Available (preview) |
-| Time-travel slider for a file's history | Planned |
+| Time-travel slider for a file's history | Available (preview) |
 | Conflict resolution with a branch-structure map | Planned |
 
 ## Feedback and contributing

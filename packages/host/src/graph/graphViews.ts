@@ -102,6 +102,15 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     this.attach(panel.webview, panel);
   }
 
+  /** Shows the graph (the panel view, unless the beside panel is open) and selects `sha` there. */
+  async reveal(root: string, sha: string): Promise<void> {
+    if (this.panel) this.panel.reveal(undefined, true);
+    else await vscode.commands.executeCommand(`${GRAPH_VIEW_ID}.focus`);
+    // The view may be resolving for the first time: let its webview subscribe before pushing.
+    for (let i = 0; i < 40 && !this.clients.size; i++) await new Promise((r) => setTimeout(r, 25));
+    this.emit('graph.select', { root, sha });
+  }
+
   /** For tests: the state webviews are shown. */
   state(): GraphState {
     const session = this.shown ? this.repos.all().find((s) => s.root === this.shown) : undefined;
@@ -295,7 +304,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     return sel.repo === this.shown ? sel.file : null;
   }
 
-  private emit<E extends 'graph.sync' | 'graph.lineage' | 'graph.openFiles' | 'graph.refresh' | 'graph.activeFile'>(event: E, data: GraphHostEvents[E]): void {
+  private emit<E extends 'graph.sync' | 'graph.lineage' | 'graph.openFiles' | 'graph.refresh' | 'graph.activeFile' | 'graph.select'>(event: E, data: GraphHostEvents[E]): void {
     for (const c of this.clients) c.emit(event, data);
   }
 }

@@ -85,6 +85,8 @@ export type GraphHostEvents = {
   'graph.reset': GraphState;
   'graph.sync': GraphSync | null;
   'graph.lineage': GraphLineage;
+  /** Select and scroll to a commit (from the blame hover's "Show in graph"). */
+  'graph.select': { root: string; sha: string };
   /** HEAD or refs may have moved without the index changing (checkout): refetch refs and branch views. */
   'graph.refresh': { root: string };
   /** The active editor's file changed (null: none, or outside the repo shown). */

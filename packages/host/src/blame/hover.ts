@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import type { LineHistoryEntry } from '@gvx/protocol';
 import { isYou, relativeTime, sparklinePositions, truncate, type LineBlame } from './format';
 
-export const HOVER_COMMANDS = ['gitvision.blame.openCommitDiff', 'gitvision.blame.copySha'] as const;
+export const HOVER_COMMANDS = ['gitvision.blame.openCommitDiff', 'gitvision.blame.copySha', 'gitvision.timeTravel.openAt', 'gitvision.graph.reveal'] as const;
 
 export interface DiffArgs {
   root: string;
@@ -53,7 +53,9 @@ export function blameHover(opts: {
   const diff: DiffArgs = { root, sha: c.sha, path: info.origPath, prev: c.previous };
   md.appendMarkdown(
     `\`${short(c.sha)}\` &nbsp; [$(diff) Open diff](${cmd('gitvision.blame.openCommitDiff', diff)} "Open the change") &nbsp; ` +
-      `[$(copy) Copy SHA](${cmd('gitvision.blame.copySha', c.sha)} "Copy the full SHA")`,
+      `[$(copy) Copy SHA](${cmd('gitvision.blame.copySha', c.sha)} "Copy the full SHA") &nbsp; ` +
+      `[$(history) Time travel](${cmd('gitvision.timeTravel.openAt', { root, path, sha: c.sha })} "Show this file as it was at this commit") &nbsp; ` +
+      `[$(git-commit) Show in graph](${cmd('gitvision.graph.reveal', { root, sha: c.sha })} "Select this commit in the graph")`,
   );
   if (info.origPath !== path) md.appendMarkdown(`\n\n$(arrow-right) moved from ${code(info.origPath)}`);
 
