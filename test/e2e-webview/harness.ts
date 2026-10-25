@@ -59,10 +59,19 @@ export interface Harness {
   /** Wire messages the webview sent, by method (requests only). */
   requests: { method: string; params: unknown }[];
   cspViolations: string[];
+  /** Uncaught errors in the page; dispose() fails the test if there are any. */
+  pageErrors: string[];
   dispose(): Promise<void>;
 }
 
-export async function openGraph(page: Page, fixture: string, opts: { theme?: Record<string, string>; bodyClass?: string } = {}): Promise<Harness> {
+export interface OpenOptions {
+  theme?: Record<string, string>;
+  bodyClass?: string;
+  /** Rewrites the CSP the page is served with (to test fallbacks). */
+  csp?: (csp: string) => string;
+}
+
+export async function openGraph(page: Page, fixture: string, opts: OpenOptions = {}): Promise<Harness> {
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: path.join(FIXTURES, fixture), encoding: 'utf8' }).trim();
   const storage = mkdtempSync(path.join(tmpdir(), 'gvx-e2e-'));
   const pool = new WorkerPool({ workerPath: path.join(ROOT, 'dist/worker.js'), gitPath: 'git' });
@@ -70,6 +79,8 @@ export async function openGraph(page: Page, fixture: string, opts: { theme?: Rec
   const state: GraphState = { root, total: stats.commitCount, userEmail: 'dev0@example.com' };
   const requests: Harness['requests'] = [];
   const cspViolations: string[] = [];
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e.message));
 
   let deliver: ((msg: WireMessage) => void) | null = null;
   const host: HostRpc = new RpcEndpoint({
@@ -132,7 +143,8 @@ export async function openGraph(page: Page, fixture: string, opts: { theme?: Rec
   await page.route(`${ORIGIN}/**`, (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === '/') {
-      const html = webviewHtml({ cspSource: ORIGIN, nonce: 'e2e-nonce', asset: (n) => `${ORIGIN}/${n}`, name: 'graph', title: 'Git Graph' });
+      let html = webviewHtml({ cspSource: ORIGIN, nonce: 'e2e-nonce', asset: (n) => `${ORIGIN}/${n}`, name: 'graph', title: 'Git Graph' });
+      if (opts.csp) html = html.replace(/content="([^"]*)"/, (_, c: string) => `content="${opts.csp!(c)}"`);
       return route.fulfill({ contentType: 'text/html', body: html });
     }
     const file = path.join(bundle, path.basename(url.pathname));
@@ -147,12 +159,33 @@ export async function openGraph(page: Page, fixture: string, opts: { theme?: Rec
     state,
     requests,
     cspViolations,
+    pageErrors,
     async dispose() {
       host.dispose();
       pool.dispose();
       rmSync(storage, { recursive: true, force: true });
+      if (pageErrors.length) throw new Error(`Uncaught errors in the webview:\n${pageErrors.join('\n')}`);
     },
   };
+}
+
+/**
+ * RGB of the screen pixel at CSS (x, y), from a real screenshot: works whichever thread draws the
+ * canvas (a canvas transferred to a worker cannot be read back with getContext).
+ */
+export async function pixelAt(page: Page, x: number, y: number): Promise<number[]> {
+  const png = (await page.screenshot({ clip: { x, y, width: 1, height: 1 } })).toString('base64');
+  return page.evaluate(async (data) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${data}`;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(img, 0, 0);
+    return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3));
+  }, png);
 }
 
 function encode(v: unknown): unknown {

@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { relativeTime, type GraphState } from '@gvx/protocol';
   import { readTheme, watchTheme, type CanvasTheme } from '@gvx/ui-tokens';
-  import { draw, graphWidth, ROW_HEIGHT } from './draw';
+  import { graphWidth, ROW_HEIGHT } from './draw';
+  import { createRenderer, type GraphRenderer } from './renderer';
   import { PageCache } from './pageCache';
   import type { HostRpc } from './rpc';
 
@@ -16,10 +17,12 @@
   let version = $state(0);
   let lanes = $state(1);
   let selected = $state<string | null>(null);
-  let theme = $state<CanvasTheme | null>(null);
+  // Raw: replaced whole on theme change, and posted to the render worker (a deep $state proxy cannot be cloned).
+  let theme = $state.raw<CanvasTheme | null>(null);
 
   let scroller: HTMLDivElement;
   let canvas: HTMLCanvasElement;
+  let renderer = $state<GraphRenderer | null>(null);
   const now = Math.floor(Date.now() / 1000);
 
   const cache = new PageCache(
@@ -48,6 +51,13 @@
   }
 
   onMount(() => {
+    let disposed = false;
+    void createRenderer(canvas).then((r) => {
+      if (disposed) return r.dispose();
+      renderer = r;
+      // Dev builds expose the renderer for the webview tests (frame latency, which renderer is live).
+      if (__DEV__) (window as unknown as { __gvxRenderer: GraphRenderer }).__gvxRenderer = r;
+    });
     theme = readTheme();
     const unwatch = watchTheme((t) => (theme = t));
     const off = rpc.on('graph.reset', apply);
@@ -58,6 +68,8 @@
       unwatch();
       off();
       ro.disconnect();
+      disposed = true;
+      renderer?.dispose();
     };
   });
 
@@ -68,23 +80,15 @@
   // Redraw the canvas whenever what it shows changes; runs after the DOM rows update, before paint.
   $effect(() => {
     void version;
-    if (!canvas || !theme) return;
-    const dpr = devicePixelRatio || 1;
-    const w = graphW;
-    const h = viewHeight;
-    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-    }
-    const rows = visible.map((r) => cache.row(r)?.graph ?? null);
-    draw(canvas.getContext('2d')!, {
-      width: w,
-      height: h,
-      dpr,
+    if (!renderer || !theme) return;
+    renderer.render({
+      width: graphW,
+      height: viewHeight,
+      dpr: devicePixelRatio || 1,
       scrollTop,
       first,
-      rows,
-      theme,
+      rows: visible.map((r) => cache.row(r)?.graph ?? null),
+      theme: { lanes: theme.lanes, surface: theme.surface, contrastBorder: theme.contrastBorder, head: theme.head },
       headRow: -1,
       pulseRow: -1,
       pulse: 1,
@@ -105,7 +109,7 @@
     graph.userEmail && mail.toLowerCase() === graph.userEmail.toLowerCase() ? 'You' : name;
 </script>
 
-<div class="graph">
+<div class="graph" data-renderer={renderer?.kind}>
   {#if error}
     <p class="message">{error}</p>
   {:else if !graph.root}

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openGraph, type Harness } from './harness';
+import { openGraph, pixelAt, type Harness } from './harness';
 
 let h: Harness | undefined;
 test.afterEach(async () => {
@@ -13,6 +13,8 @@ test('renders commit rows and the graph canvas under the strict CSP', async ({ p
   await expect(rows.first().locator('.subject')).toHaveText(/\S/);
   expect(await rows.count()).toBeGreaterThan(20);
   await expect(rows.first().locator('.sha')).toHaveText(/^[0-9a-f]{7}$/);
+  // D6: the graph draws in a blob worker on an OffscreenCanvas, allowed by the CSP's worker-src blob:.
+  await expect(page.locator('.graph')).toHaveAttribute('data-renderer', 'worker');
   expect(h.cspViolations).toEqual([]);
   await page.screenshot({ path: 'test-results/graph-top.png' });
 });
@@ -56,21 +58,31 @@ test('scrolls 100k rows at 60 fps', async ({ page }) => {
     return { intervals: intervals.slice(1), work };
   });
   const p95 = (a: number[]) => [...a].sort((x, y) => x - y)[Math.ceil(a.length * 0.95) - 1]!;
+  // D6: how long the worker takes to draw a frame after the main thread posts it (the lanes trail the text by this).
+  const latency = await page.evaluate(() => (window as unknown as { __gvxRenderer: { latencies(): number[] } }).__gvxRenderer.latencies());
+  console.log(`worker frame latency p95 ${p95(latency).toFixed(2)} ms over ${latency.length} frames`);
   const longFrames = r.intervals.filter((x) => x > 1000 / 50).length;
   console.log(`frame interval p95 ${p95(r.intervals).toFixed(1)} ms, work p95 ${p95(r.work).toFixed(2)} ms, frames > 20 ms: ${longFrames}/${r.intervals.length}`);
   // Shared CI runners get the bench's ×2 slack.
   const slack = process.env.CI ? 2 : 1;
   expect(p95(r.work)).toBeLessThan(8 * slack);
   expect(p95(r.intervals)).toBeLessThan((1000 / 50) * slack);
+  expect(p95(latency)).toBeLessThan(8 * slack);
+});
+
+test('falls back to drawing on the main thread when blob workers are not allowed', async ({ page }) => {
+  h = await openGraph(page, 'wide-100k', { csp: (c) => c.replace('; worker-src blob:', '') });
+  await expect(page.locator('[role=option] .subject').first()).toHaveText(/\S/);
+  await expect(page.locator('.graph')).toHaveAttribute('data-renderer', 'main');
+  await expect.poll(() => pixelAt(page, 12, 11)).toEqual([0x37, 0x94, 0xff]);
 });
 
 test('re-reads theme colours when VS Code switches theme', async ({ page }) => {
   h = await openGraph(page, 'wide-100k');
   await expect(page.locator('[role=option] .subject').first()).toHaveText(/\S/);
-  // The first commit's node: lane 0 (x = 12 CSS px), row 0 (y = 11), at deviceScaleFactor 2.
-  const nodePixel = () =>
-    page.locator('canvas').evaluate((c: HTMLCanvasElement) => Array.from(c.getContext('2d')!.getImageData(24, 22, 1, 1).data.slice(0, 3)));
-  expect(await nodePixel()).toEqual([0x37, 0x94, 0xff]); // Dark Modern charts.blue
+  // The first commit's node: lane 0, row 0 → centre at CSS (12, 11).
+  const nodePixel = () => pixelAt(page, 12, 11);
+  await expect.poll(nodePixel).toEqual([0x37, 0x94, 0xff]); // Dark Modern charts.blue
 
   await page.evaluate(() => {
     document.documentElement.style.setProperty('--vscode-charts-blue', '#005fb8');
