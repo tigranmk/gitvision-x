@@ -8,6 +8,10 @@
 // (swung 28% between two CI runs of the same code even after normalising).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// fileURLToPath, not URL.pathname: on Windows the pathname is /D:/..., which matches no file path.
+const SELF = fileURLToPath(import.meta.url);
 
 const THRESHOLD = 0.1;
 const CAL = { git: 'calibration: git log of 100k commits', cpu: 'calibration: JS parse/sort/map, 200k rows' };
@@ -46,7 +50,7 @@ export function regressions(current, baseline, threshold = THRESHOLD) {
     .sort((a, b) => b.change - a.change);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (process.argv[1] && path.resolve(process.argv[1]) === SELF) {
   const args = process.argv.slice(2);
   const bi = args.indexOf('--baseline');
   const files = args.filter((a, i) => !a.startsWith('--') && !(bi >= 0 && i === bi + 1));
@@ -57,7 +61,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
   }
   const results = JSON.parse(readFileSync(file, 'utf8'));
   const platform = results.machine?.platform ?? process.platform;
-  const baselineFile = bi >= 0 ? args[bi + 1] : path.join(path.dirname(new URL(import.meta.url).pathname), 'baseline', `${platform}.json`);
+  const baselineFile = bi >= 0 ? args[bi + 1] : path.join(path.dirname(SELF), 'baseline', `${platform}.json`);
   const current = normalise(results);
   if (args.includes('--update')) {
     // One run is noisy: take each measure's median over every results file given.
