@@ -49,7 +49,7 @@ export function regressions(current, baseline, threshold = THRESHOLD) {
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
   const args = process.argv.slice(2);
   const bi = args.indexOf('--baseline');
-  const files = args.filter((a, i) => !a.startsWith('--') && i !== bi + 1);
+  const files = args.filter((a, i) => !a.startsWith('--') && !(bi >= 0 && i === bi + 1));
   const file = files[0];
   if (!file) {
     console.error('usage: node bench/compare.mjs <results.json> [--baseline file] [--update] [--report-only]');

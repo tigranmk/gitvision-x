@@ -1,6 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
@@ -462,14 +463,9 @@ export function defineSuite(): void {
     const gitIn = (dir: string, ...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
 
     after(() => {
-      // Best effort: on Windows VS Code and git may still hold files in the clone for a moment.
-      for (const d of clones) {
-        try {
-          rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-        } catch {
-          /* left in the temp dir */
-        }
-      }
+      // Best effort and not awaited: on Windows VS Code and git may still hold files in the clone, and a
+      // blocking retry loop would freeze the extension host.
+      for (const d of clones) void rm(d, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => {});
     });
 
     it('steps a renamed file back through its history, then returns to the working copy', async () => {
@@ -549,14 +545,9 @@ export function defineSuite(): void {
     const conflicts = (root: string) => vscode.commands.executeCommand<Conflicts | null>('gitvision._test.conflicts', root);
 
     after(() => {
-      // Best effort: on Windows VS Code and git may still hold files in the clone for a moment.
-      for (const d of clones) {
-        try {
-          rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-        } catch {
-          /* left in the temp dir */
-        }
-      }
+      // Best effort and not awaited: on Windows VS Code and git may still hold files in the clone, and a
+      // blocking retry loop would freeze the extension host.
+      for (const d of clones) void rm(d, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => {});
     });
 
     /** Clones the fixture and stops scenario `name` at its conflict (merge theirs into ours, or rebase theirs onto ours). */
