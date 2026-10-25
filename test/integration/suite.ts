@@ -462,7 +462,14 @@ export function defineSuite(): void {
     const gitIn = (dir: string, ...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
 
     after(() => {
-      for (const d of clones) rmSync(d, { recursive: true, force: true });
+      // Best effort: on Windows VS Code and git may still hold files in the clone for a moment.
+      for (const d of clones) {
+        try {
+          rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        } catch {
+          /* left in the temp dir */
+        }
+      }
     });
 
     it('steps a renamed file back through its history, then returns to the working copy', async () => {
@@ -538,7 +545,14 @@ export function defineSuite(): void {
     const conflicts = (root: string) => vscode.commands.executeCommand<Conflicts | null>('gitvision._test.conflicts', root);
 
     after(() => {
-      for (const d of clones) rmSync(d, { recursive: true, force: true });
+      // Best effort: on Windows VS Code and git may still hold files in the clone for a moment.
+      for (const d of clones) {
+        try {
+          rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        } catch {
+          /* left in the temp dir */
+        }
+      }
     });
 
     /** Clones the fixture and stops scenario `name` at its conflict (merge theirs into ours, or rebase theirs onto ours). */
@@ -580,7 +594,7 @@ export function defineSuite(): void {
       return d;
     };
     /** Opening-marker lines of the document's hunks. */
-    const hunks = (d: vscode.TextDocument) => d.getText().split('\n').flatMap((l, i) => (/^<{7} /.test(l) ? [i] : []));
+    const hunks = (d: vscode.TextDocument) => d.getText().split(/\r?\n/).flatMap((l, i) => (/^<{7} /.test(l) ? [i] : []));
     const accept = async (d: vscode.TextDocument, nth: number, how: 'current' | 'incoming' | 'both') => {
       assert.ok(await vscode.commands.executeCommand('gitvision.conflicts.accept', d.uri, hunks(d)[nth], how));
     };
@@ -639,7 +653,7 @@ export function defineSuite(): void {
     it('m-zdiff3: line-level picks from both sides', async () => {
       const { root } = await stop('m-zdiff3', 'zdiff3');
       const d = await doc(root, 'm-zdiff3.txt');
-      const lines = d.getText().split('\n');
+      const lines = d.getText().split(/\r?\n/); // Windows checks out with CRLF
       const picked = [lines.indexOf('ours 6a'), lines.indexOf('theirs 6b')];
       assert.ok(picked.every((l) => l > 0), d.getText());
       assert.ok(await vscode.commands.executeCommand('gitvision.conflicts.pickLines', d.uri, hunks(d)[0], picked));

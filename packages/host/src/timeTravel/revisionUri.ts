@@ -18,7 +18,12 @@ export function parseRevisionUri(uri: vscode.Uri): { root: string; rev: Revision
   if (uri.scheme !== SCHEME || !/^[0-9a-f]{40}$/.test(uri.authority) || !uri.query) return null;
   const root = uri.query.replace(/\\/g, '/').replace(/\/$/, '');
   const abs = uri.path.replace(/^\/(?=[A-Za-z]:)/, ''); // /C:/x → C:/x on Windows
-  const rel = path.posix.relative(root.replace(/^\/(?=[A-Za-z]:)/, ''), abs);
-  if (!rel || rel.startsWith('..')) return null;
+  const base = root.replace(/^\/(?=[A-Za-z]:)/, '');
+  // VS Code lower-cases a Windows drive letter in URI paths (c:/…) but not in the query: compare paths the
+  // way the file system does (case-insensitively on Windows and macOS).
+  const fold = (p: string) => (process.platform === 'win32' || process.platform === 'darwin' ? p.toLowerCase() : p);
+  if (!fold(abs).startsWith(`${fold(base)}/`)) return null;
+  const rel = abs.slice(base.length + 1);
+  if (!rel) return null;
   return { root, rev: { sha: uri.authority, path: rel } };
 }
