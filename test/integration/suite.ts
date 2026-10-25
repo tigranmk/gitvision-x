@@ -130,11 +130,21 @@ export function defineSuite(): void {
       // "You": the fixture's user.email is also its commits' author email.
       const first = await rendered(0, /^You, .+ ago • initial$/);
       assert.ok(first.text);
+      // Warm render is synchronous; one sample on a shared CI runner can catch a GC pause, so take five
+      // (alternating lines) and hold the median to the budget.
+      const samples: number[] = [];
+      for (let i = 0; i < 5; i++) {
+        const line = i % 2 ? 0 : 11;
+        moveTo(line);
+        const r = await rendered(line, line ? / • tweak app$/ : / • initial$/);
+        assert.equal(r.warm, true, 'blame and line map were prefetched');
+        samples.push(r.ms);
+      }
+      const median = [...samples].sort((a, b) => a - b)[2]!;
+      console.log(`      warm render ${samples.map((x) => x.toFixed(2)).join(', ')} ms (median ${median.toFixed(2)})`);
+      assert.ok(median < 16, `warm render median ${median.toFixed(1)} ms (${samples.map((x) => x.toFixed(1)).join(', ')})`);
       moveTo(11);
-      const r = await rendered(11, / • tweak app$/);
-      assert.equal(r.warm, true, 'blame and line map were prefetched');
-      console.log(`      warm render ${r.ms.toFixed(2)} ms`);
-      assert.ok(r.ms < 16, `warm render took ${r.ms.toFixed(1)} ms`);
+      await rendered(11, / • tweak app$/);
       assert.match((await state()).selection.commit ?? '', /^[0-9a-f]{40}$/);
     });
 

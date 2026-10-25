@@ -138,9 +138,14 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.commands.registerCommand('gitvision._test.graphOpenDiff', (a: Parameters<GraphViews['openDiff']>[0]) => graph?.openDiff(a)),
       vscode.commands.registerCommand('gitvision._test.fileBlame', async (uri: vscode.Uri) => {
         const doc = await vscode.workspace.openTextDocument(uri);
-        const entry = blame?.store.get(doc);
-        const outcome = entry && (await entry.promise);
-        return { known: !!entry, coldMs: entry?.coldMs, failure: isFailure(outcome) ? outcome.code : null };
+        // Follow replacements: a HEAD move invalidates the repo's blame (the old request ends 'cancelled')
+        // and the file is blamed again; report the entry that is current once it settles.
+        for (;;) {
+          const entry = blame?.store.get(doc);
+          const outcome = entry && (await entry.promise);
+          if (entry && blame?.store.get(doc) !== entry) continue;
+          return { known: !!entry, coldMs: entry?.coldMs, failure: isFailure(outcome) ? outcome.code : null };
+        }
       }),
     );
   }
