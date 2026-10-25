@@ -42,6 +42,8 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
   private lineageTimer: ReturnType<typeof setTimeout> | undefined;
   /** For tests: the last stage-1 sync (cursor event → event pushed) and stage-2 lineage. */
   lastSync: { sha: string | null; seq: number; ms: number } | null = null;
+  /** Called with each stage-1 sync's duration (performance telemetry). */
+  onSyncTimed: ((ms: number) => void) | undefined;
   lastLineage: { seq: number; shas: string[]; ms: number } | null = null;
 
   constructor(
@@ -247,6 +249,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
 
     this.sync = { sha: c.sha, seq: ++this.syncSeq };
     this.lastSync = { sha: c.sha, seq: this.sync.seq, ms: performance.now() - started };
+    this.onSyncTimed?.(this.lastSync.ms);
     this.emit('graph.sync', this.sync);
   }
 

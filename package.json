@@ -496,6 +496,7 @@
     "@gvx/host": "workspace:*",
     "@gvx/protocol": "workspace:*",
     "@gvx/ui-tokens": "workspace:*",
-    "@gvx/webview-shared": "workspace:*"
+    "@gvx/webview-shared": "workspace:*",
+    "@vscode/extension-telemetry": "1.5.2"
   }
 }

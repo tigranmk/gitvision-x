@@ -20,6 +20,7 @@ import { TimeTravelController } from './timeTravel/controller';
 import { registerRevisionFs } from './timeTravel/revisionFs';
 import { TimelineView } from './timeTravel/timelineView';
 import { enableTestAnswers, queueAnswers, shownPrompts } from './ui';
+import { PerfTelemetry } from './perfTelemetry';
 import { RepoRegistry } from './repoRegistry';
 import { SelectionStore } from './selectionStore';
 
@@ -41,7 +42,8 @@ export function activate(context: vscode.ExtensionContext) {
     validate: __DEV__ ? require('../../protocol/src/schemas').validateWire : undefined,
   });
   const repos = new RepoRegistry(pool, context.globalStorageUri.fsPath, log);
-  context.subscriptions.push(log, { dispose: () => pool.dispose() }, repos);
+  const telemetry = PerfTelemetry.create();
+  context.subscriptions.push(log, { dispose: () => pool.dispose() }, repos, telemetry);
 
   const updateSelection = () => {
     const editor = vscode.window.activeTextEditor;
@@ -56,6 +58,7 @@ export function activate(context: vscode.ExtensionContext) {
     repos.onDidOpen(updateSelection),
     repos.onDidClose(updateSelection),
     repos.onDidSync(({ stats }) => {
+      if (stats.mode !== 'unchanged') telemetry.record('indexSync', stats.durationMs);
       if (stats.refsChanged) refsEvents.push({ root: stats.root, tips: stats.tips.length, mode: stats.mode });
     }),
   );
@@ -95,8 +98,16 @@ export function activate(context: vscode.ExtensionContext) {
     actions = new GraphActions(pool, repos, () => gitApi);
     conflictStore = new ConflictStore(pool, repos, context.workspaceState);
     conflicts = new ConflictController(context, pool, repos, conflictStore, () => gitApi);
+    context.subscriptions.push(blame.store.onDidLoad((e) => e.coldMs !== undefined && telemetry.record('blameCold', e.coldMs)));
     graph = new GraphViews(context.extensionUri, pool, repos, selection, () => blame, () => gitApi, actions, { store: conflictStore, controller: conflicts });
+    graph.onSyncTimed = (ms) => telemetry.record('graphSync', ms);
     timeTravel = new TimeTravelController(pool, repos);
+    let lastStep: unknown = null;
+    context.subscriptions.push(
+      timeTravel.onDidChange(() => {
+        if (timeTravel?.lastStep && timeTravel.lastStep !== lastStep) telemetry.record('timeTravelStep', (lastStep = timeTravel.lastStep).ms);
+      }),
+    );
     context.subscriptions.push(
       actions,
       registerRevisionFs(pool),
@@ -132,6 +143,7 @@ export function activate(context: vscode.ExtensionContext) {
   }, 0);
 
   const activationMs = performance.now() - started;
+  telemetry.record('activation', activationMs);
 
   if (context.extensionMode === vscode.ExtensionMode.Test) {
     enableTestAnswers();

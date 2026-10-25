@@ -14,7 +14,11 @@ const common = {
   target: 'node20',
   sourcemap: !production,
   minify: production,
-  define: { __DEV__: JSON.stringify(!production) },
+  define: {
+    __DEV__: JSON.stringify(!production),
+    // Performance telemetry stays off unless a release build is given an Application Insights connection string.
+    __TELEMETRY_CONNECTION__: JSON.stringify(production ? (process.env.GVX_TELEMETRY_CONNECTION ?? '') : ''),
+  },
   logLevel: 'info',
 };
 
