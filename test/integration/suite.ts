@@ -11,6 +11,7 @@ interface TestState {
   selection: { repo: string | null; file: string | null; line: number | null; commit: string | null };
   refsEvents: { root: string; mode: string }[];
   lastRender?: { uri: string; line: number; text: string; ms: number; warm: boolean };
+  graph?: { root: string | null; total: number };
 }
 
 // A remote extension host doesn't get the runner's env, so fall back to the window's folder.
@@ -218,6 +219,25 @@ export function defineSuite(): void {
       await vscode.commands.executeCommand('gitvision.blame.blameFile');
       moveTo(5);
       await rendered(5, / • huge file$/);
+    });
+  });
+  describe('F2 — graph', () => {
+    it('contributes the graph view and opens it beside the editor', async () => {
+      // The panel view resolves its webview; its state follows the active repo and its commit count.
+      await vscode.commands.executeCommand('gitvision.graph.focus');
+      const g = await waitFor('graph state', async () => {
+        const s = await state();
+        const repo = s.repos.find((r) => r.info.root === realRoot);
+        return s.graph?.root === realRoot && s.graph.total === repo?.stats?.commitCount && s.graph;
+      });
+      assert.ok(g.total > 5);
+
+      await vscode.commands.executeCommand('gitvision.graph.openBeside');
+      const tab = await waitFor('graph panel tab', async () =>
+        vscode.window.tabGroups.all.flatMap((group) => group.tabs).find((t) => t.label === 'Git Graph'),
+      );
+      assert.ok(tab.input instanceof vscode.TabInputWebview);
+      await vscode.window.tabGroups.close(tab);
     });
   });
 }

@@ -1,0 +1,70 @@
+/*
+ * GitVision design tokens (spec: UI/UX design tokens). Every colour is an alias of a VS Code theme
+ * variable, so light, dark, high-contrast and custom themes work without extra code.
+ */
+:root {
+  --gvx-surface: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  --gvx-surface-raised: var(--vscode-editorWidget-background);
+  --gvx-border: var(--vscode-widget-border, var(--vscode-panel-border, transparent));
+  --gvx-text: var(--vscode-foreground);
+  --gvx-text-muted: var(--vscode-descriptionForeground);
+  --gvx-ghost: var(--vscode-editorCodeLens-foreground);
+  --gvx-focus: var(--vscode-focusBorder);
+  --gvx-selection: var(--vscode-list-activeSelectionBackground);
+  --gvx-selection-text: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+  --gvx-hover: var(--vscode-list-hoverBackground);
+  --gvx-line-sync: var(--vscode-editor-findMatchHighlightBackground);
+  --gvx-added: var(--vscode-gitDecoration-addedResourceForeground);
+  --gvx-added-bg: var(--vscode-diffEditor-insertedLineBackground);
+  --gvx-removed: var(--vscode-gitDecoration-deletedResourceForeground);
+  --gvx-removed-bg: var(--vscode-diffEditor-removedLineBackground);
+  --gvx-modified: var(--vscode-gitDecoration-modifiedResourceForeground);
+  --gvx-conflict: var(--vscode-gitDecoration-conflictingResourceForeground);
+  --gvx-merge-current: var(--vscode-merge-currentHeaderBackground);
+  --gvx-merge-incoming: var(--vscode-merge-incomingHeaderBackground);
+  --gvx-merge-common: var(--vscode-merge-commonHeaderBackground);
+  --gvx-lane-1: var(--vscode-charts-blue);
+  --gvx-lane-2: var(--vscode-charts-green);
+  --gvx-lane-3: var(--vscode-charts-orange);
+  --gvx-lane-4: var(--vscode-charts-purple);
+  --gvx-lane-5: var(--vscode-charts-red);
+  --gvx-lane-6: var(--vscode-charts-yellow);
+  --gvx-lane-7: var(--vscode-terminal-ansiCyan);
+  --gvx-lane-8: var(--vscode-terminal-ansiMagenta);
+  --gvx-head: var(--vscode-gitvision-headForeground, var(--vscode-charts-blue));
+  --gvx-contrast-border: var(--vscode-contrastBorder, transparent);
+
+  --gvx-font: var(--vscode-font-family);
+  --gvx-font-mono: var(--vscode-editor-font-family);
+  --gvx-font-size: var(--vscode-font-size, 13px);
+  --gvx-row-height: 22px;
+  --gvx-space-1: 4px;
+  --gvx-space-2: 8px;
+  --gvx-space-3: 12px;
+  --gvx-space-4: 16px;
+  --gvx-radius: 4px;
+  --gvx-lane-width: 16px;
+  --gvx-motion: 120ms ease-out;
+}
+
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+  --gvx-radius: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --gvx-motion: 0ms linear;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--gvx-surface);
+  color: var(--gvx-text);
+  font-family: var(--gvx-font);
+  font-size: var(--gvx-font-size);
+}

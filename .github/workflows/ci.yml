@@ -37,6 +37,17 @@ jobs:
           name: bench-${{ matrix.os }}
           path: bench/results/*.ci.json
           if-no-files-found: ignore
+      - name: Webview UI tests (Playwright, Chromium)
+        if: runner.os == 'Linux'
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm test:webview
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Linux'
+        with:
+          name: webview-screenshots
+          path: test-results/
+          if-no-files-found: ignore
       - name: Integration tests (VS Code stable)
         if: runner.os != 'Linux'
         run: pnpm test:integration

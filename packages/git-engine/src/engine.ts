@@ -7,6 +7,9 @@ import { GraphLayout } from './graphLayout';
 import { IndexStore } from './indexStore';
 import { resolveRepo } from './repo';
 
+/** Tables up to this size are laid out whole on the first graph page. */
+const EAGER_LAYOUT_ROWS = 250_000;
+
 export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, EngineEvents, EventMap>): void {
   const trace = (msg: string) => rpc.emit('engine.trace', { msg });
   let git: Git | null = null;
@@ -39,7 +42,12 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
     const table = ready().index.table(root);
     if (!table) throw Object.assign(new Error(`No commit index for ${root}`), { code: 'no-index' });
     let layout = layouts.get(root);
-    if (layout?.table !== table) layouts.set(root, (layout = new GraphLayout(table)));
+    if (layout?.table !== table) {
+      layouts.set(root, (layout = new GraphLayout(table)));
+      // Up to 250k rows, lay out everything now (~25 ms per 100k): the graph's width is then final
+      // from the first page, so text columns never shift while scrolling. Larger repos lay out lazily.
+      if (table.count <= EAGER_LAYOUT_ROWS) layout.layoutTo(table.count - 1);
+    }
     const p = layout.page(start, count);
     const commits = [];
     for (let r = p.start; r < p.start + p.nodeLane.length; r++) {

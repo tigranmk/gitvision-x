@@ -11,6 +11,7 @@ import { isFailure } from './blame/blameStore';
 import type { GitAPI, GitExtension, GitRepository } from './gitApi';
 import { registerCommitGraphOffer } from './commitGraphOffer';
 import { offerGitLensCoexistence } from './gitlens';
+import { GraphViews } from './graph/graphViews';
 import { RepoRegistry } from './repoRegistry';
 import { SelectionStore } from './selectionStore';
 
@@ -68,6 +69,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   let blame: BlameController | undefined;
+  let graph: GraphViews | undefined;
 
   // Discovery and blame run after activation returns.
   setTimeout(() => {
@@ -78,7 +80,8 @@ export function activate(context: vscode.ExtensionContext) {
       log.warn(`vscode.git API unavailable: ${(e as Error).message}`);
     }
     blame = new BlameController(context, pool, repos, selection, () => gitApi, log);
-    context.subscriptions.push(blame, registerCommitGraphOffer(context, pool, repos, log));
+    graph = new GraphViews(context.extensionUri, pool, repos, selection);
+    context.subscriptions.push(blame, graph, registerCommitGraphOffer(context, pool, repos, log));
     const tryOpen = (dir: string) => repos.open(dir).catch((e) => log.error(`Could not open ${dir}: ${(e as Error).message}`));
     if (gitApi) {
       // vscode.git's own refresh is a second change signal next to our .git watchers: file events in
@@ -109,6 +112,7 @@ export function activate(context: vscode.ExtensionContext) {
         selection: selection.get(),
         refsEvents,
         lastRender: blame?.lastRender,
+        graph: graph?.state(),
       })),
       vscode.commands.registerCommand('gitvision._test.blame', (root: string, file: string) =>
         pool.request('blame.file', { root, path: file }, { affinity: root }).then((b) => ({

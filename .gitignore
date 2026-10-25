@@ -6,3 +6,5 @@ out/
 test/fixtures/repos/
 bench/results/*.local.json
 .DS_Store
+test-results/
+playwright-report/

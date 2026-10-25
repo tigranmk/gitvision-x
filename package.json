@@ -84,6 +84,12 @@
         "command": "gitvision.blame.copySha",
         "title": "Copy Commit SHA",
         "category": "GitVision"
+      },
+      {
+        "command": "gitvision.graph.openBeside",
+        "title": "Open Graph Beside",
+        "category": "GitVision",
+        "icon": "$(split-horizontal)"
       }
     ],
     "menus": {
@@ -95,6 +101,13 @@
         {
           "command": "gitvision.blame.copySha",
           "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "gitvision.graph.openBeside",
+          "when": "view == gitvision.graph",
+          "group": "navigation"
         }
       ]
     },
@@ -122,39 +135,79 @@
           "description": "In repositories with 10,000+ commits, offer once to let git build its commit-graph with changed-path Bloom filters (roughly 40% faster first-time blame of old lines)."
         }
       }
-    }
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "gitvision",
+          "title": "GitVision",
+          "icon": "media/graph.svg"
+        }
+      ]
+    },
+    "views": {
+      "gitvision": [
+        {
+          "type": "webview",
+          "id": "gitvision.graph",
+          "name": "Graph",
+          "icon": "media/graph.svg",
+          "contextualTitle": "GitVision"
+        }
+      ]
+    },
+    "colors": [
+      {
+        "id": "gitvision.headForeground",
+        "description": "HEAD marker and current branch chip in the GitVision graph.",
+        "defaults": {
+          "dark": "charts.blue",
+          "light": "charts.blue",
+          "highContrast": "charts.blue",
+          "highContrastLight": "charts.blue"
+        }
+      }
+    ]
   },
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:prod": "node scripts/build.mjs --production",
     "watch": "node scripts/build.mjs --watch",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/e2e-webview/tsconfig.json --noEmit && svelte-check --tsconfig packages/webview-graph/tsconfig.json --fail-on-warnings",
     "lint": "eslint .",
     "test": "vitest run",
     "test:integration": "pnpm build:prod && node test/integration/run.mjs",
     "fixtures": "node scripts/fixtures.mjs",
     "bench": "node bench/run.mjs",
-    "package": "pnpm build:prod && vsce package --no-dependencies"
+    "package": "pnpm build:prod && vsce package --no-dependencies",
+    "test:webview": "pnpm build && node scripts/fixtures.mjs --only wide-100k && playwright test -c test/e2e-webview/playwright.config.ts"
   },
   "packageManager": "pnpm@10.33.2",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.64.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.20.5",
     "@types/vscode": "~1.95.0",
+    "@vscode/codicons": "0.0.45",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.13.0",
     "mocha": "^11.8.0",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.7",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.72.0",
+    "vite": "^8.3.5",
     "vitest": "^5.0.5",
     "zod": "^4.6.7"
   },
   "dependencies": {
     "@gvx/git-engine": "workspace:*",
     "@gvx/host": "workspace:*",
-    "@gvx/protocol": "workspace:*"
+    "@gvx/protocol": "workspace:*",
+    "@gvx/ui-tokens": "workspace:*"
   }
 }

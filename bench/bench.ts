@@ -132,8 +132,8 @@ async function main() {
       width = last.width;
       p.dispose();
     }
-    record('graph: first page, cold layout (100 rows)', firstPage, 100);
-    record(`graph: last page, lays out all 100k rows (${width} lanes) (documented)`, fullLayout);
+    record('graph: first page, cold (lays out all 100k rows)', firstPage, 100);
+    record(`graph: last page, already laid out (${width} lanes)`, fullLayout, 16);
     const scrollPool = await graphSession();
     await scrollPool.request('graph.page', { root, start: 100_000 - PAGE, count: PAGE }, { affinity: root });
     await measure('graph: page of 100 laid-out rows (scrolling)', 20, async (i) => {
@@ -146,19 +146,12 @@ async function main() {
     const wideRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: WIDE, encoding: 'utf8' }).trim();
     const widePool = newPool();
     await widePool.request('index.sync', { root: wideRoot, storageDir: storage('wide') }, { affinity: wideRoot });
-    await measure('graph wide: first page, cold layout (100 rows)', 1, async () => {
-      await widePool.request('graph.page', { root: wideRoot, start: 0, count: PAGE }, { affinity: wideRoot });
-    }, 100);
     let wideWidth = 0;
     let wideEdges = 0;
-    const wideFull: number[] = [];
-    {
-      const t = performance.now();
-      const last = await widePool.request('graph.page', { root: wideRoot, start: 100_000 - PAGE, count: PAGE }, { affinity: wideRoot });
-      wideFull.push(performance.now() - t);
-      wideWidth = last.width;
-    }
-    record(`graph wide: lay out all 100k rows (${wideWidth} lanes) (documented)`, wideFull);
+    await measure('graph wide: first page, cold (lays out all 100k rows)', 1, async () => {
+      wideWidth = (await widePool.request('graph.page', { root: wideRoot, start: 0, count: PAGE }, { affinity: wideRoot })).width;
+    }, 100);
+    console.log(`  (wide: ${wideWidth} lanes)`);
     await measure('graph wide: page of 100 laid-out rows (scrolling)', 20, async (i) => {
       const pg = await widePool.request('graph.page', { root: wideRoot, start: (i * 4919) % 99_900, count: PAGE }, { affinity: wideRoot });
       wideEdges = Math.max(wideEdges, pg.edges.length);

@@ -32,6 +32,7 @@ channel. Set the log level to Trace (Output panel → gear icon) to see per-file
 | `pnpm watch` | Rebuilds on change. |
 | `pnpm lint` / `pnpm typecheck` | ESLint, and TypeScript in strict mode. |
 | `pnpm test` | Unit tests (Vitest) against real git repos created in temp directories. |
+| `pnpm test:webview` | Webview UI tests (Playwright, Chromium) against the built bundles, under the extension's real HTML and CSP. Run `pnpm exec playwright install chromium` once first. |
 | `pnpm test:integration` | Runs the production build inside a downloaded VS Code. Set `VSCODE_VERSION=1.95.0` to test the minimum supported version. |
 | `pnpm fixtures` | Generates the test repositories in `test/fixtures/repos/` (git-ignored), including a 100,000-commit one. |
 | `node bench/run.mjs` | Performance benchmarks with budgets; fails if one is missed. |
@@ -43,7 +44,9 @@ channel. Set the log level to Trace (Output panel → gear icon) to see per-file
 |---|---|---|
 | `packages/protocol` | everywhere | The RPC envelope (request, response, cancel, streamed partials, push), engine method types, the selection model, and dev-only zod validation |
 | `packages/git-engine` | worker threads | Running git, streaming parsers, the commit index, blame and its caches. `WorkerPool` is the host-side client |
-| `packages/host` | extension host | Activation, commands, `SelectionStore`, `.git` watching, blame rendering |
+| `packages/host` | extension host | Activation, commands, `SelectionStore`, `.git` watching, blame rendering, webview hosting |
+| `packages/webview-graph` | webview (Svelte 5) | The commit graph: canvas lanes, virtual rows, viewport paging |
+| `packages/ui-tokens` | webviews | `--gvx-*` CSS tokens (aliases of VS Code theme variables) and the canvas theme reader |
 
 Requests are routed by repository, so a repo's state stays in one worker. Blame and index work run on
 different workers, so loading a large index never delays blame.
@@ -66,6 +69,8 @@ different workers, so loading a large index never delays blame.
 
 ## Tests
 
+- **Webview tests** (`test/e2e-webview/`) load a built webview in Chromium with `acquireVsCodeApi` bridged to a
+  real worker pool (`harness.ts`). Screenshots land in `test-results/`.
 - **Unit tests** sit next to the code (`*.test.ts`) and use real git through `test/unit/helpers/gitRepo.ts`.
   Prefer that to mocking git.
 - **Integration tests** (`test/integration/suite.ts`) run against a throwaway copy of the `small` fixture.
