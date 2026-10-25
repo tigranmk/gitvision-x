@@ -61,6 +61,8 @@ export type GraphHostMethods = {
   /** Rows of commits (-1 when not in the graph), e.g. to jump to a parent. */
   'graph.rows': MethodSpec<{ root: string; view?: GraphView; shas: string[] }, number[]>;
   'clipboard.write': MethodSpec<{ text: string }, null>;
+  /** Opens a commit's changes (against its first parent) in VS Code's multi-file diff editor. */
+  'graph.openCommit': MethodSpec<{ root: string; sha: string }, null>;
   /** Shallow clone: fetch more history (the host confirms nothing: fetching adds, never removes). */
   'graph.fetchMore': MethodSpec<{ root: string }, null>;
   /** A branch chip dropped on another: the host offers merge or rebase and confirms before running it. */

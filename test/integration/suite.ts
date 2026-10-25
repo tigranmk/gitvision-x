@@ -374,6 +374,15 @@ export function defineSuite(): void {
       await vscode.window.tabGroups.close(tab);
     });
 
+    it('opens a commit (Enter in the graph) in the multi-file diff editor, root commit included', async () => {
+      const root = git('rev-list', '--max-parents=0', 'HEAD').trim().split('\n')[0]!;
+      await vscode.commands.executeCommand('gitvision._test.openCommit', realRoot, root);
+      const tab = await waitFor('commit changes editor', async () =>
+        vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((t) => t.label.startsWith(`${root.slice(0, 7)} initial`)),
+      );
+      await vscode.window.tabGroups.close(tab);
+    });
+
     it('reports a cherry-pick that stops with conflicts', async () => {
       git('checkout', '-q', '-b', 'conflict-src', 'HEAD~1');
       writeFileSync(path.join(workspace, 'README.md'), 'theirs\n');

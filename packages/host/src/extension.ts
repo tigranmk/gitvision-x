@@ -114,6 +114,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
       vscode.commands.registerCommand('gitvision._test.answer', (...a: (string | undefined)[]) => queueAnswers(...a)),
       vscode.commands.registerCommand('gitvision._test.prompts', () => shownPrompts.splice(0)),
+      vscode.commands.registerCommand('gitvision._test.openCommit', (root: string, sha: string) => actions?.openCommit(root, sha)),
       vscode.commands.registerCommand('gitvision._test.dropBranch', (d: Parameters<GraphActions['dropBranch']>[0]) => actions?.dropBranch(d)),
       vscode.commands.registerCommand('gitvision._test.state', () => ({
         activationMs,

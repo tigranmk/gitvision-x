@@ -297,3 +297,44 @@ test('a shallow clone ends with a "history truncated" row that fetches more', as
   await expect.poll(() => h!.fetches).toEqual([h.root]);
   await page.screenshot({ path: 'test-results/graph-shallow.png' });
 });
+
+test('keyboard: ↑/↓, Page/Home/End move the active row; Space selects; Enter opens; Escape closes', async ({ page }) => {
+  h = await openGraph(page, 'wide-100k');
+  await expect(page.locator('[role=option] .subject').first()).toHaveText(/\S/);
+  const list = page.locator('[role=listbox]');
+  // Tab reaches the filter, the search button, then the list.
+  await page.keyboard.press('Tab');
+  await expect(page.getByLabel('Commits shown')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByLabel('Search commits')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(list).toBeFocused();
+  await expect(list).toHaveAttribute('aria-activedescendant', 'row-0');
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(list).toHaveAttribute('aria-activedescendant', 'row-2');
+  await expect(page.locator('#row-2')).toHaveClass(/active/);
+  await page.keyboard.press('Space');
+  await expect(page.locator('#row-2')).toHaveAttribute('aria-selected', 'true');
+  const sha = await page.locator('#row-2').getAttribute('data-sha');
+  await expect(page.locator('aside.details h2')).toHaveText(/\S/);
+
+  await page.keyboard.press('Enter');
+  await expect.poll(() => h!.commitsOpened).toEqual([sha]);
+
+  // End jumps 100k rows; the active row is scrolled in, so its element exists for aria-activedescendant.
+  await page.keyboard.press('End');
+  await expect(list).toHaveAttribute('aria-activedescendant', `row-${h.state.total - 1}`);
+  await expect(page.locator(`#row-${h.state.total - 1} .subject`)).toHaveText(/\S/);
+  await page.keyboard.press('PageUp');
+  const afterPageUp = Number((await list.getAttribute('aria-activedescendant'))!.slice(4));
+  expect(afterPageUp).toBeLessThan(h.state.total - 10);
+  await expect(page.locator(`#row-${afterPageUp}`)).toBeVisible();
+  await page.keyboard.press('Home');
+  await expect(list).toHaveAttribute('aria-activedescendant', 'row-0');
+  await expect(page.locator('#row-0')).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('aside.details')).toHaveCount(0);
+});

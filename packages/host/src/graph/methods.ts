@@ -18,6 +18,7 @@ export interface GraphMethodDeps {
   openDiff(args: GraphHostMethods['graph.openDiff']['params']): PromiseLike<void>;
   dropBranch(args: GraphHostMethods['graph.dropBranch']['params']): PromiseLike<void>;
   fetchMore(root: string): PromiseLike<void>;
+  openCommit(root: string, sha: string): PromiseLike<void>;
 }
 
 export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
@@ -64,6 +65,10 @@ export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
   rpc.handle('graph.dropBranch', async (args) => {
     current(args.root);
     await d.dropBranch(args);
+    return null;
+  });
+  rpc.handle('graph.openCommit', async ({ root, sha }) => {
+    await d.openCommit(current(root), sha);
     return null;
   });
   rpc.handle('graph.fetchMore', async ({ root }) => {

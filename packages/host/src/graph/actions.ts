@@ -148,6 +148,21 @@ export class GraphActions implements vscode.Disposable {
     await vscode.commands.executeCommand('vscode.changes', `${short(c.sha)} ↔ HEAD`, resources);
   }
 
+  /** A commit's changes against its first parent, in the multi-file diff editor (Enter in the graph). */
+  async openCommit(root: string, sha: string): Promise<void> {
+    const api = this.gitApi();
+    if (!api) return void vscode.window.showWarningMessage('GitVision needs the built-in Git extension to open changes.');
+    const d = await this.pool.request('commit.details', { root, sha }, { affinity: root });
+    const parent = d.parents[0];
+    const resources = d.files.map((f) => [
+      vscode.Uri.file(path.join(root, f.path)),
+      f.status === 'A' || !parent ? undefined : gitUri(api, root, f.oldPath ?? f.path, parent),
+      f.status === 'D' ? undefined : gitUri(api, root, f.path, sha),
+    ]);
+    const subject = d.message.split('\n')[0] ?? '';
+    await vscode.commands.executeCommand('vscode.changes', `${short(sha)} ${subject.length > 50 ? `${subject.slice(0, 49)}…` : subject}`, resources);
+  }
+
   /** Drag a branch onto another: merge it into that branch, or rebase it onto that branch. */
   async dropBranch(d: BranchDrop): Promise<void> {
     if (d.source.name === d.target.name) return;

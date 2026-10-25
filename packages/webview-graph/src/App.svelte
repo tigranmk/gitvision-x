@@ -134,6 +134,7 @@
     matchIndex = -1;
     version++;
     if (toTop && scroller) scroller.scrollTop = scrollTop = 0;
+    if (toTop) activeRow = 0;
     if (!root || !v) {
       loading = false;
       return;
@@ -364,8 +365,58 @@
   const rowAt = (r: number, v: number) => (v >= 0 ? cache.row(r) : null);
 
   function select(e: MouseEvent) {
-    const sha = (e.target as HTMLElement).closest<HTMLElement>('[role=option]')?.dataset.sha;
-    if (sha) selected = sha;
+    const el = (e.target as HTMLElement).closest<HTMLElement>('[role=option]');
+    if (el?.dataset.row) activeRow = Number(el.dataset.row);
+    if (el?.dataset.sha) selected = el.dataset.sha;
+  }
+
+  // ---- keyboard (spec: ↑/↓, Enter opens, Space selects; aria-activedescendant on the virtual listbox) ----
+  /** The row keyboard focus is on; it is always kept rendered (scrolled into view) so its id resolves. */
+  let activeRow = $state(0);
+  const pageRows = $derived(Math.max(1, Math.floor(viewHeight / ROW_HEIGHT) - 1));
+  function moveTo(row: number) {
+    activeRow = Math.max(0, Math.min(rowCount - 1, row));
+    // Minimal scroll: just enough to show the row.
+    const top = activeRow * ROW_HEIGHT;
+    if (top < scroller.scrollTop) scroller.scrollTop = scrollTop = top;
+    else if (top + ROW_HEIGHT > scroller.scrollTop + viewHeight) scroller.scrollTop = scrollTop = top + ROW_HEIGHT - viewHeight;
+  }
+  function onListKeydown(e: KeyboardEvent) {
+    const sha = cache.row(activeRow)?.commit.sha;
+    switch (e.key) {
+      case 'ArrowDown':
+        moveTo(activeRow + 1);
+        break;
+      case 'ArrowUp':
+        moveTo(activeRow - 1);
+        break;
+      case 'PageDown':
+        moveTo(activeRow + pageRows);
+        break;
+      case 'PageUp':
+        moveTo(activeRow - pageRows);
+        break;
+      case 'Home':
+        moveTo(0);
+        break;
+      case 'End':
+        moveTo(rowCount - 1);
+        break;
+      case ' ':
+        if (sha) selected = sha;
+        break;
+      case 'Enter':
+        if (activeRow === boundaryRow) void fetchMore();
+        else if (sha && graph.root) void rpc.request('graph.openCommit', { root: graph.root, sha });
+        break;
+      case 'Escape':
+        if (!selected) return;
+        selected = null;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
   }
 
   /** What VS Code passes to the commit context menu's commands (webview/context in package.json). */
@@ -456,13 +507,15 @@
   <div class="scroller" bind:this={scroller} onscroll={() => (scrollTop = scroller.scrollTop)}>
     <div class="viewport" style:height="{viewHeight}px">
       <canvas bind:this={canvas} style:width="{graphW}px" style:height="{viewHeight}px"></canvas>
-      <!-- svelte-ignore a11y_click_events_have_key_events (keyboard navigation is on the listbox: ↑/↓, Enter, Space) -->
+      <!-- Keyboard is on the listbox (↑/↓, PageUp/PageDown, Home/End, Enter, Space, Escape): rows need no handlers. -->
       <div
         class="rows"
         role="listbox"
         aria-label="Commits"
         tabindex="0"
         bind:this={listbox}
+        aria-activedescendant={activeRow < rowCount ? `row-${activeRow}` : undefined}
+        onkeydown={onListKeydown}
         onclick={select}
         oncontextmenu={select}
         {ondragstart}
@@ -471,7 +524,7 @@
         {ondragend} style:transform="translateY({-(scrollTop % ROW_HEIGHT)}px)">
         {#each visible as r (r)}
           {#if r === boundaryRow}
-            <div class="row boundary" role="option" tabindex="-1" id="row-{r}" aria-selected="false" style:transform="translateY({(r - first) * ROW_HEIGHT}px)">
+            <div class="row boundary" class:active={r === activeRow} role="option" tabindex="-1" id="row-{r}" data-row={r} aria-selected="false" style:transform="translateY({(r - first) * ROW_HEIGHT}px)">
               <span class="lanes" style:width="{graphW}px"></span>
               <i class="codicon codicon-fold-down"></i>
               <span class="subject">History truncated (shallow clone)</span>
@@ -492,6 +545,8 @@
             class:match={matchSet.has(r)}
             style:transform="translateY({(r - first) * ROW_HEIGHT}px)"
             data-sha={row?.commit.sha}
+            data-row={r}
+            class:active={r === activeRow}
             data-vscode-context={row ? menuContext(row.commit) : undefined}
           >
             <span class="lanes" style:width="{graphW}px"></span>
@@ -652,10 +707,7 @@
     inset: 0;
     outline: none;
   }
-  .rows:focus-visible {
-    outline: 1px solid var(--gvx-focus);
-    outline-offset: -1px;
-  }
+  /* Focus shows on the active row (aria-activedescendant), not on the whole list. */
   .row {
     position: absolute;
     left: 0;
@@ -667,6 +719,11 @@
     padding-right: var(--gvx-space-2);
     white-space: nowrap;
     cursor: default;
+  }
+  .rows:focus-visible .row.active,
+  .rows:focus .row.active {
+    outline: 1px solid var(--gvx-focus);
+    outline-offset: -1px;
   }
   .row:hover {
     background: var(--gvx-hover);
