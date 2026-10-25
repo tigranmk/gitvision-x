@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — commit graph
+
+- **Commit graph** in the panel, or beside the editor. Smooth at 60 fps on 100,000+ commits.
+- **Follows your cursor:** the current line's commit is highlighted as you move, and the line's whole
+  history is ringed when you pause.
+- **Commit details:** message, branches and tags, changed files with +/− counts (open files pinned),
+  and a small side-by-side diff; double-click a file for the full diff.
+- **Filters and search:** all branches, current branch, or the active file; <kbd>/</kbd> searches by
+  message, author, SHA, or `path:`.
+- **Git actions, always confirmed first:** check out, create branch or tag, cherry-pick, revert, reset,
+  compare with HEAD; drag a branch onto another to merge or rebase.
+- **Labels** for branches, remotes, tags, detached HEAD and other worktrees; **Fetch more** for shallow
+  clones.
+- **Keyboard** navigation and screen-reader support in the commit list.
+- Fixed: **Open diff** from the blame hover showed an empty diff when the folder was opened through a
+  symbolic link (for example under `/var` on macOS).
+
 ## 0.0.1 — first preview
 
 - **Blame on the current line:** author, age and commit message in faded text at the end of the line.

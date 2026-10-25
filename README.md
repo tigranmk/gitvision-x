@@ -2,11 +2,12 @@
 
 **Who changed this line, and when, without leaving the code.**
 
-GitVision X shows git blame for the line your cursor is on, quietly and fast. Hover it to see the line's
-history. It's one free extension with no sidebars to manage, no CodeLens clutter and no paywalled views.
+GitVision X shows git blame for the line your cursor is on, quietly and fast, and a commit graph that
+follows your cursor. Hover the blame to see the line's history. It's one free extension with no CodeLens
+clutter and no paywalled views.
 
-> **Preview.** Inline blame is ready to use. The cursor-synced commit graph, the time-travel slider and
-> conflict resolution are still in development (see [Roadmap](#roadmap)).
+> **Preview.** Inline blame and the commit graph are ready to use. The time-travel slider and conflict
+> resolution are still in development (see [Roadmap](#roadmap)).
 
 ## Features
 
@@ -43,6 +44,28 @@ Select a block of code to see who wrote it and how old it is:
 12 lines: 3 authors · You 60%, Ann 30% · oldest 2 years ago · newest 3 days ago
 ```
 
+### Commit graph that follows your cursor
+
+Open **GitVision** in the panel (next to the Terminal), or **Open Graph Beside** to put it next to your
+editor. It stays smooth at 60 fps on repositories with 100,000+ commits.
+
+- **Follows your cursor:** the commit that last changed the current line is highlighted and scrolled
+  into view as you move. Rest on a line and every commit in that line's history is ringed, so you can
+  see its path through the branches.
+- **Commit details:** click a commit for its message, branches and tags, and the changed files with
+  +/− counts. Files you have open are pinned to the top. Hover or select a file for a small side-by-side
+  diff; double-click it (or press Enter) for the full diff editor.
+- **Filters and search:** show all branches, the current branch, or only commits that touched the
+  active file. Press <kbd>/</kbd> to search by message, author or SHA; type `path:src/app.ts` (globs
+  work) for commits that touched a path.
+- **Git actions:** right-click a commit to check it out, create a branch or tag, cherry-pick, revert,
+  reset the current branch to it, or compare it with HEAD. Drag one branch label onto another to merge
+  or rebase. Every action that changes the repository asks first and says exactly what will happen.
+- **Labels:** branches, remote branches, tags, a detached HEAD, and the HEADs of your other worktrees.
+  Shallow clones end with a **Fetch more** row.
+- **Keyboard:** ↑/↓, Page Up/Down, Home/End to move, Space to show details, Enter to open the commit's
+  changes, Escape to close the details.
+
 ### Optional extras
 
 - **Gutter heatmap:** colours the gutter by line age, from warm (recent) to cool (old).
@@ -63,6 +86,7 @@ Open the Command Palette (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P
 
 | Command | What it does |
 |---|---|
+| **GitVision: Open Graph Beside** | Opens the commit graph next to the editor. |
 | **GitVision: Toggle Inline Blame** | Turns the current-line blame on or off. |
 | **GitVision: Blame This File** | Blames a file over 20,000 lines, which is skipped automatically. |
 | **GitVision: Show Commit Index Stats** | Shows how many commits are indexed for each open repository. |
@@ -100,11 +124,12 @@ don't see blame twice. Nothing else in GitLens is changed, and you can decline.
 
 ## Privacy and data
 
-- GitVision X sends nothing over the network and collects no telemetry.
+- GitVision X collects no telemetry. It contacts your remote only when you click **Fetch more** in a
+  shallow clone (a normal `git fetch`, with your own credentials).
 - It keeps a commit index and a blame cache in VS Code's extension storage on your machine. The blame
   cache is capped at 256 MB.
-- It never writes to your repository, except for the commit-graph file, and only if you accept that
-  offer.
+- It changes your repository only when you ask: a graph action you confirmed (checkout, branch, tag,
+  cherry-pick, revert, reset, merge, rebase), or the commit-graph file if you accept that offer.
 
 ## Requirements
 
@@ -121,6 +146,10 @@ don't see blame twice. Nothing else in GitLens is changed, and you can decline.
 - Files over 20,000 lines are only blamed on request (**GitVision: Blame This File**). Binary files are
   not blamed.
 - Repositories using SHA-256 object names are not supported yet.
+- The graph shows up to 24 branch lanes side by side; further lanes are cut off at the edge.
+- Message search covers commit subjects, not full message bodies.
+- The first time a repository with 100,000 commits is indexed, the graph appears after about a second
+  (git reads every commit once). After that the index is reused and the graph opens in about 0.3 s.
 - Works with files on disk, including over Remote-SSH, where it runs on the remote machine. Dev Containers
   and WSL work the same way but haven't been tested yet. Virtual and web workspaces (such as vscode.dev)
   are not supported.
@@ -130,7 +159,7 @@ don't see blame twice. Nothing else in GitLens is changed, and you can decline.
 | Milestone | Status |
 |---|---|
 | Inline blame with line history | Available (preview) |
-| Commit graph that follows your cursor | In development |
+| Commit graph that follows your cursor | Available (preview) |
 | Time-travel slider for a file's history | Planned |
 | Conflict resolution with a branch-structure map | Planned |
 

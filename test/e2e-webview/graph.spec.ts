@@ -40,6 +40,8 @@ test('jumping to the middle of 100k commits loads that page and cancels nothing 
 test('scrolls 100k rows at 60 fps', async ({ page }) => {
   h = await openGraph(page, 'wide-100k');
   await expect(page.locator('[role=option] .subject').first()).toHaveText(/\S/);
+  // The renderer starts after the worker's ready handshake; measure once it is live.
+  await expect(page.locator('.graph')).toHaveAttribute('data-renderer', 'worker');
   // Scroll 3 rows per frame for 300 frames (~5 s of steady scrolling) and record frame intervals.
   const r = await page.locator('.scroller').evaluate(async (el) => {
     const intervals: number[] = [];

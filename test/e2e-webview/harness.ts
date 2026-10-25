@@ -80,6 +80,8 @@ export interface Harness {
   /** Wire messages the webview sent, by method (requests only). */
   requests: { method: string; params: unknown }[];
   cspViolations: string[];
+  /** index.sync before the page loaded (worker start included), and how it ran ('full' or 'cached'). */
+  sync: { ms: number; mode: string };
   /** Uncaught errors in the page; dispose() fails the test if there are any. */
   pageErrors: string[];
   dispose(): Promise<void>;
@@ -90,13 +92,17 @@ export interface OpenOptions {
   bodyClass?: string;
   /** Rewrites the CSP the page is served with (to test fallbacks). */
   csp?: (csp: string) => string;
+  /** Index storage to use (reuse one to open the index from disk); a fresh temp dir by default. */
+  storageDir?: string;
 }
 
 export async function openGraph(page: Page, fixture: string, opts: OpenOptions = {}): Promise<Harness> {
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: path.join(FIXTURES, fixture), encoding: 'utf8' }).trim();
-  const storage = mkdtempSync(path.join(tmpdir(), 'gvx-e2e-'));
+  const storage = opts.storageDir ?? mkdtempSync(path.join(tmpdir(), 'gvx-e2e-'));
   const pool = new WorkerPool({ workerPath: path.join(ROOT, 'dist/worker.js'), gitPath: 'git' });
+  const syncStarted = performance.now();
   const stats = await pool.request('index.sync', { root, storageDir: storage }, { affinity: root });
+  const syncMs = performance.now() - syncStarted;
   const state: GraphState = { root, total: stats.commitCount, userEmail: 'dev0@example.com', sync: null, activeFile: null };
   const requests: Harness['requests'] = [];
   const cspViolations: string[] = [];
@@ -164,6 +170,12 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
         w.__gvxDeliveredAt = performance.now();
         window.dispatchEvent(new MessageEvent('message', { data: dec(m) }));
       };
+      // First paint of commit rows, in ms since navigation start (performance.now() origin).
+      const watchFirstRows = () => {
+        if (document.querySelector('[role=option] .subject')?.textContent) w.__gvxFirstRows = performance.now();
+        else requestAnimationFrame(watchFirstRows);
+      };
+      requestAnimationFrame(watchFirstRows);
       document.addEventListener('securitypolicyviolation', (e) =>
         (w.__gvxCsp as (v: string) => void)(`${e.violatedDirective}: ${e.blockedURI}`),
       );
@@ -207,10 +219,11 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     requests,
     cspViolations,
     pageErrors,
+    sync: { ms: syncMs, mode: stats.mode },
     async dispose() {
       host.dispose();
       pool.dispose();
-      rmSync(storage, { recursive: true, force: true });
+      if (!opts.storageDir) rmSync(storage, { recursive: true, force: true });
       if (pageErrors.length) throw new Error(`Uncaught errors in the webview:\n${pageErrors.join('\n')}`);
     },
   };
