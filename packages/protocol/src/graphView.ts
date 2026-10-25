@@ -1,5 +1,5 @@
 /** Host ↔ graph webview channel (an RpcEndpoint over the webview's postMessage). */
-import type { CommitDetails, CommitFile, GraphPage, RefInfo } from './engine';
+import type { CommitDetails, CommitFile, GraphPage, MicroDiff, RefInfo } from './engine';
 import type { MethodSpec } from './rpc';
 
 export interface GraphState {
@@ -54,6 +54,9 @@ export type GraphHostMethods = {
   /** Rows of commits (-1 when not in the graph), e.g. to jump to a parent. */
   'graph.rows': MethodSpec<{ root: string; shas: string[] }, number[]>;
   'clipboard.write': MethodSpec<{ text: string }, null>;
+  'graph.fileDiff': MethodSpec<{ root: string; sha: string; path: string; oldPath?: string }, MicroDiff>;
+  /** Opens VS Code's diff editor for a file of a commit, against its first parent. */
+  'graph.openDiff': MethodSpec<{ root: string; sha: string; parent: string | null; file: Pick<CommitFile, 'path' | 'oldPath' | 'status'> }, null>;
   'graph.state': MethodSpec<Record<string, never>, GraphState>;
   /** Rows of the repo in `root` (the state the webview last saw); 'stale' if the host moved on. */
   'graph.page': MethodSpec<{ root: string; start: number; count: number }, GraphPage>;

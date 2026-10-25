@@ -15,6 +15,7 @@ export interface GraphMethodDeps {
   /** Repo-relative paths open in editor tabs. */
   openFiles(root: string): string[];
   writeClipboard(text: string): PromiseLike<void>;
+  openDiff(args: GraphHostMethods['graph.openDiff']['params']): PromiseLike<void>;
 }
 
 export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
@@ -41,6 +42,14 @@ export function registerGraphMethods(rpc: GraphRpc, d: GraphMethodDeps): void {
     const details = await d.pool.request('commit.details', { root: current(root), sha }, { affinity: root, signal });
     const open = new Set(d.openFiles(root));
     return { ...details, files: details.files.map((f) => ({ ...f, open: open.has(f.path) })) };
+  });
+  rpc.handle('graph.fileDiff', ({ root, sha, path, oldPath }, { signal }) =>
+    d.pool.request('commit.fileDiff', { root: current(root), sha, path, oldPath }, { affinity: root, signal }),
+  );
+  rpc.handle('graph.openDiff', async (args) => {
+    current(args.root);
+    await d.openDiff(args);
+    return null;
   });
   rpc.handle('clipboard.write', async ({ text }) => {
     await d.writeClipboard(text);

@@ -6,6 +6,7 @@ import { Git } from './git';
 import { GraphLayout } from './graphLayout';
 import { IndexStore } from './indexStore';
 import { commitDetails } from './commitDetails';
+import { fileMicroDiff } from './microDiff';
 import { readRefs, resolveRepo } from './repo';
 
 /** Tables up to this size are laid out whole on the first graph page. */
@@ -66,6 +67,10 @@ export function registerEngine(rpc: RpcEndpoint<EngineMethods, NoMethods, Engine
   });
 
   rpc.handle('commit.details', ({ root, sha }, { signal }) => commitDetails(ready().git, root, sha, signal));
+
+  rpc.handle('commit.fileDiff', ({ root, sha, path, oldPath, maxRows }, { signal }) =>
+    fileMicroDiff(ready().git, root, sha, path, oldPath, maxRows, signal),
+  );
 
   rpc.handle('repo.refs', ({ root }, { signal }) => readRefs(ready().git, root, signal));
 

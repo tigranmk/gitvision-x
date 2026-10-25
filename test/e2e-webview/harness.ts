@@ -55,6 +55,8 @@ export const DARK_THEME: Record<string, string> = {
   '--vscode-gitDecoration-deletedResourceForeground': '#c74e39',
   '--vscode-gitDecoration-modifiedResourceForeground': '#e2c08d',
   '--vscode-textLink-foreground': '#4daafc',
+  '--vscode-diffEditor-insertedLineBackground': '#9bb95533',
+  '--vscode-diffEditor-removedLineBackground': '#ff000033',
 };
 
 export interface Harness {
@@ -63,6 +65,8 @@ export interface Harness {
   state: GraphState;
   root: string;
   pool: WorkerPool;
+  /** Diff editors the webview asked the host to open. */
+  diffsOpened: GraphHostMethods['graph.openDiff']['params'][];
   /** Text the webview asked the host to copy. */
   clipboard: string[];
   /** Repo-relative paths the fake host reports as open in editors (mutable). */
@@ -102,6 +106,7 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     },
   });
   const clipboard: string[] = [];
+  const diffsOpened: Harness['diffsOpened'] = [];
   const openFiles: string[] = [];
   registerGraphMethods(host, {
     pool,
@@ -109,6 +114,7 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     shown: () => root,
     openFiles: () => openFiles,
     writeClipboard: async (text) => void clipboard.push(text),
+    openDiff: async (a) => void diffsOpened.push(a),
   });
 
   await page.exposeFunction('__gvxToHost', (m: unknown) => {
@@ -181,6 +187,7 @@ export async function openGraph(page: Page, fixture: string, opts: OpenOptions =
     root,
     pool,
     clipboard,
+    diffsOpened,
     openFiles,
     requests,
     cspViolations,

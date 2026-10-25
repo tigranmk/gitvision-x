@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { isCancelled, type LineHistoryEntry } from '@gvx/protocol';
 import type { WorkerPool } from '@gvx/git-engine';
+import { gitUri } from '../gitUri';
 import type { GitAPI } from '../gitApi';
 import type { RepoRegistry } from '../repoRegistry';
 import type { SelectionStore } from '../selectionStore';
@@ -323,16 +324,12 @@ export class BlameController implements vscode.Disposable {
 
   private async openDiff(a: DiffArgs): Promise<void> {
     const api = this.gitApi();
-    const right = vscode.Uri.file(path.join(a.root, a.path));
     if (!api) return void vscode.window.showWarningMessage('GitVision needs the built-in Git extension to open diffs.');
     const title = `${path.basename(a.path)} (${a.sha.slice(0, 7)})`;
-    if (a.prev) {
-      const left = vscode.Uri.file(path.join(a.root, a.prev.path));
-      await vscode.commands.executeCommand('vscode.diff', api.toGitUri(left, a.prev.sha), api.toGitUri(right, a.sha), title);
-    } else {
-      // No previous revision known (root commit, or history entry): diff against the parent.
-      await vscode.commands.executeCommand('vscode.diff', api.toGitUri(right, `${a.sha}^`), api.toGitUri(right, a.sha), title);
-    }
+    const right = gitUri(api, a.root, a.path, a.sha);
+    // No previous revision known (root commit, or history entry): diff against the parent.
+    const left = a.prev ? gitUri(api, a.root, a.prev.path, a.prev.sha) : gitUri(api, a.root, a.path, `${a.sha}^`);
+    await vscode.commands.executeCommand('vscode.diff', left, right, title);
   }
 
   dispose(): void {

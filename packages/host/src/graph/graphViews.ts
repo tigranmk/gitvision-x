@@ -4,10 +4,13 @@
  * graph pages from the index worker and pushes `graph.reset` when the repo shown or its history changes.
  */
 import { randomBytes } from 'node:crypto';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { RpcEndpoint, isCancelled, type GraphHostEvents, type GraphState, type GraphSync, type Transport } from '@gvx/protocol';
+import { RpcEndpoint, isCancelled, type GraphHostEvents, type GraphHostMethods, type GraphState, type GraphSync, type Transport } from '@gvx/protocol';
 import type { WorkerPool } from '@gvx/git-engine';
 import type { BlameController } from '../blame/blameController';
+import type { GitAPI } from '../gitApi';
+import { gitUri } from '../gitUri';
 import { IDLE_MS } from '../blame/blameController';
 import type { RepoRegistry } from '../repoRegistry';
 import type { SelectionStore } from '../selectionStore';
@@ -42,6 +45,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     private readonly repos: RepoRegistry,
     private readonly selection: SelectionStore,
     private readonly blame: () => BlameController | undefined,
+    private readonly gitApi: () => GitAPI | undefined,
   ) {
     this.shown = this.pickRoot();
     this.disposables.push(
@@ -126,6 +130,7 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
       shown: () => this.shown,
       openFiles: (root) => this.openFiles(root),
       writeClipboard: (text) => vscode.env.clipboard.writeText(text),
+      openDiff: (a) => this.openDiff(a),
     });
     this.clients.add(rpc);
     owner.onDidDispose(() => {
@@ -228,6 +233,23 @@ export class GraphViews implements vscode.WebviewViewProvider, vscode.Disposable
     clearTimeout(this.lineageTimer);
     this.lineage?.controller.abort();
     this.lineage = null;
+  }
+
+  /** VS Code's diff editor for one file of a commit; added and deleted files open the one side that exists. */
+  async openDiff(a: GraphHostMethods['graph.openDiff']['params']): Promise<void> {
+    const api = this.gitApi();
+    if (!api) return void vscode.window.showWarningMessage('GitVision needs the built-in Git extension to open diffs.');
+    const at = (file: string, ref: string) => gitUri(api, a.root, file, ref);
+    const short = a.sha.slice(0, 7);
+    const name = path.basename(a.file.path);
+    if (a.file.status === 'D' && a.parent) {
+      await vscode.commands.executeCommand('vscode.open', at(a.file.oldPath ?? a.file.path, a.parent), { preview: true }, `${name} (deleted in ${short})`);
+    } else if (a.file.status === 'A' || !a.parent) {
+      await vscode.commands.executeCommand('vscode.open', at(a.file.path, a.sha), { preview: true }, `${name} (added in ${short})`);
+    } else {
+      const title = `${name} (${a.parent.slice(0, 7)} ↔ ${short})`;
+      await vscode.commands.executeCommand('vscode.diff', at(a.file.oldPath ?? a.file.path, a.parent), at(a.file.path, a.sha), title, { preview: true });
+    }
   }
 
   /** Repo-relative paths of files open in editor tabs (text and diff editors). */

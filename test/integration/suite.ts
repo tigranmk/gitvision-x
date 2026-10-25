@@ -258,6 +258,33 @@ export function defineSuite(): void {
       console.log(`      lineage: ${lineage.rows.length} commits in ${lineage.ms.toFixed(0)} ms`);
       assert.ok(lineage.rows.includes(synced.graphSync!.row), `the synced commit is part of its line lineage (${lineage.rows})`);
 
+      // Graph → editor: a modified file opens the diff editor; an added one opens its single revision.
+      const tweak = git('log', '--format=%H', '--grep=^tweak app$').trim();
+      const initial = git('rev-parse', `${tweak}^`).trim();
+      await vscode.commands.executeCommand('gitvision._test.graphOpenDiff', { root: realRoot, sha: tweak, parent: initial, file: { path: 'src/app.ts', status: 'M' } });
+      const diffTab = await waitFor('diff editor', async () =>
+        vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((t) => t.input instanceof vscode.TabInputTextDiff && t.label.startsWith('app.ts')),
+      );
+      const diffInput = diffTab.input as vscode.TabInputTextDiff;
+      assert.equal(diffInput.original.scheme, 'git');
+      assert.equal(diffInput.modified.scheme, 'git');
+      // The URIs must resolve in vscode.git's provider (the repo is opened through the /var symlink on macOS).
+      assert.equal((await vscode.workspace.openTextDocument(diffInput.modified)).lineCount, 13);
+      assert.equal((await vscode.workspace.openTextDocument(diffInput.original)).lineCount, 11);
+      await vscode.window.tabGroups.close(diffTab);
+      const featureSha = git('rev-parse', 'feature').trim();
+      await vscode.commands.executeCommand('gitvision._test.graphOpenDiff', {
+        root: realRoot,
+        sha: featureSha,
+        parent: git('rev-parse', `${featureSha}^`).trim(),
+        file: { path: 'src/feature.ts', status: 'A' },
+      });
+      const added = await waitFor('added file editor', async () =>
+        vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((t) => t.input instanceof vscode.TabInputText && t.input.uri.scheme === 'git'),
+      );
+      assert.equal((await vscode.workspace.openTextDocument((added.input as vscode.TabInputText).uri)).getText(), 'export const f = 1;\n');
+      await vscode.window.tabGroups.close(added);
+
       await vscode.commands.executeCommand('gitvision.graph.openBeside');
       const tab = await waitFor('graph panel tab', async () =>
         vscode.window.tabGroups.all.flatMap((group) => group.tabs).find((t) => t.label === 'Git Graph'),

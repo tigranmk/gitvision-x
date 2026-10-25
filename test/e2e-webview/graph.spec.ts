@@ -164,3 +164,32 @@ test('labels refs and HEAD; clicking a commit opens its details', async ({ page 
   await details.locator('button[title="Close details"]').click();
   await expect(details).toHaveCount(0);
 });
+
+test('micro-diff previews the selected or hovered file; double-click or Enter opens the diff editor', async ({ page }) => {
+  h = await openGraph(page, 'small');
+  await page.locator('[role=option]', { hasText: 'tweak app' }).click();
+  const details = page.locator('aside.details');
+  await expect(details.locator('h2')).toHaveText('tweak app');
+  const file = details.locator('.row-button', { hasText: 'app.ts' });
+  await file.click();
+  const diff = page.locator('.micro-diff');
+  await expect(diff.locator('h4')).toHaveText('src/app.ts');
+  // app.ts grew from 10 to 12 lines: two added rows after 3 lines of context.
+  await expect(diff.locator('tr.add')).toHaveCount(2);
+  await expect(diff.locator('tr.add .right').first()).toHaveText('export const a10 = 10;');
+  await expect(diff.locator('tr.same')).toHaveCount(3);
+  await page.screenshot({ path: 'test-results/graph-micro-diff.png' });
+
+  await file.dblclick();
+  await file.press('Enter');
+  await expect.poll(() => h!.diffsOpened.length).toBe(2);
+  expect(h.diffsOpened[0]).toMatchObject({ file: { path: 'src/app.ts', status: 'M' } });
+  expect(h.diffsOpened[0]!.parent).toMatch(/^[0-9a-f]{40}$/);
+
+  // Hovering another commit's file previews it; leaving goes back to the selected file.
+  await page.locator('[role=option]', { hasText: 'initial' }).click();
+  await expect(details.locator('h2')).toHaveText('initial');
+  await details.locator('.row-button', { hasText: 'README.md' }).hover();
+  await expect(diff.locator('h4')).toHaveText('README.md');
+  await expect(diff.locator('tr.add')).toHaveCount(1);
+});

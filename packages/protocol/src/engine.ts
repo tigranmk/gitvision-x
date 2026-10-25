@@ -155,6 +155,28 @@ export interface RepoRefs {
   refs: RefInfo[];
 }
 
+export interface MicroDiffLine {
+  /** 1-based line number on that side. */
+  line: number;
+  text: string;
+}
+
+/** One row of a side-by-side diff; 'gap' separates hunks (unchanged lines left out). */
+export interface MicroDiffRow {
+  kind: 'same' | 'add' | 'del' | 'mod' | 'gap';
+  left?: MicroDiffLine;
+  right?: MicroDiffLine;
+}
+
+export interface MicroDiff {
+  rows: MicroDiffRow[];
+  /** More changed lines exist past the row cap. */
+  truncated: boolean;
+  binary: boolean;
+  /** A side is over the size cap: not diffed. */
+  tooLarge: boolean;
+}
+
 /** Files above this many lines are blamed on demand only (spec F1). */
 export const AUTO_BLAME_MAX_LINES = 20_000;
 
@@ -175,6 +197,8 @@ export type EngineMethods = {
   /** Row of each commit in the repo's graph, -1 when it is not in the index. */
   'graph.rows': MethodSpec<{ root: string; shas: string[] }, number[]>;
   'commit.details': MethodSpec<{ root: string; sha: string }, CommitDetails>;
+  /** Side-by-side diff of one file of a commit against its first parent, at most `maxRows` rows (default 40). */
+  'commit.fileDiff': MethodSpec<{ root: string; sha: string; path: string; oldPath?: string; maxRows?: number }, MicroDiff>;
   'repo.refs': MethodSpec<{ root: string }, RepoRefs>;
   'index.contains': MethodSpec<{ root: string; shas: string[] }, boolean[] | null>;
   'repo.commitGraph': MethodSpec<{ root: string }, CommitGraphStatus>;

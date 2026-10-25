@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { isCancelled, relativeTime, type GraphCommitDetails, type GraphFile, type GraphRef } from '@gvx/protocol';
+  import { isCancelled, relativeTime, type GraphCommitDetails, type GraphFile, type GraphRef, type MicroDiff as Diff } from '@gvx/protocol';
   import { buildTree, flatten } from './fileTree';
+  import MicroDiff from './MicroDiff.svelte';
   import type { HostRpc } from './rpc';
 
   let {
@@ -28,6 +29,12 @@
   let error = $state<string | null>(null);
   let collapsed = $state.raw(new Set<string>());
   let selectedFile = $state<string | null>(null);
+  /** File under the pointer (after a short delay), previewed instead of the selected one. */
+  let hoveredFile = $state<string | null>(null);
+  let diff = $state.raw<{ path: string; diff: Diff | null; error: string | null } | null>(null);
+  const diffs = new Map<string, Diff>();
+  let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+  const HOVER_DELAY_MS = 150;
   const now = Math.floor(Date.now() / 1000);
 
   $effect(() => {
@@ -36,6 +43,8 @@
     details = null;
     error = null;
     selectedFile = null;
+    hoveredFile = null;
+    diffs.clear();
     rpc.request('graph.details', { root, sha: want }, { signal: controller.signal }).then(
       (d) => (details = d),
       (e) => {
@@ -44,6 +53,43 @@
     );
     return () => controller.abort();
   });
+
+  // Micro-diff of the hovered file, else the selected one; fetched once per file, cancelled when it changes.
+  const shownFile = $derived(details?.files.find((f) => f.path === (hoveredFile ?? selectedFile)) ?? null);
+  $effect(() => {
+    const f = shownFile;
+    if (!f) {
+      diff = null;
+      return;
+    }
+    const cached = diffs.get(f.path);
+    if (cached) {
+      diff = { path: f.path, diff: cached, error: null };
+      return;
+    }
+    diff = { path: f.path, diff: null, error: null };
+    const controller = new AbortController();
+    rpc.request('graph.fileDiff', { root, sha, path: f.path, oldPath: f.oldPath }, { signal: controller.signal }).then(
+      (d) => {
+        diffs.set(f.path, d);
+        if (diff?.path === f.path) diff = { path: f.path, diff: d, error: null };
+      },
+      (e) => {
+        if (!isCancelled(e) && diff?.path === f.path) diff = { path: f.path, diff: null, error: (e as Error).message };
+      },
+    );
+    return () => controller.abort();
+  });
+
+  function hover(path: string | null) {
+    clearTimeout(hoverTimer);
+    if (path === null) hoveredFile = null;
+    else hoverTimer = setTimeout(() => (hoveredFile = path), HOVER_DELAY_MS);
+  }
+
+  function openDiff(f: GraphFile) {
+    void rpc.request('graph.openDiff', { root, sha, parent: details?.parents[0] ?? null, file: { path: f.path, oldPath: f.oldPath, status: f.status } });
+  }
 
   const subject = $derived(details?.message.split('\n')[0] ?? '');
   const body = $derived(details?.message.split('\n').slice(1).join('\n').trim() ?? '');
@@ -130,8 +176,8 @@
           {#if node.file}
             {@render fileRow(node.file, node.name, depth)}
           {:else}
-            <li role="treeitem" aria-selected="false" aria-expanded={!collapsed.has(node.path)} style:padding-left="{depth * 12 + 4}px">
-              <button class="row-button" onclick={() => toggle(node.path)}>
+            <li role="treeitem" aria-selected="false" aria-expanded={!collapsed.has(node.path)}>
+              <button class="row-button" style:padding-left="{depth * 12 + 4}px" onclick={() => toggle(node.path)}>
                 <i class="codicon codicon-chevron-{collapsed.has(node.path) ? 'right' : 'down'}"></i>
                 <i class="codicon codicon-folder"></i>
                 <span class="name">{node.name}</span>
@@ -142,12 +188,29 @@
       </ul>
       {#if details.filesTruncated}<p class="muted">…and {details.filesTruncated} more files.</p>{/if}
     </section>
+    {#if diff}
+      <MicroDiff path={diff.path} diff={diff.diff} error={diff.error} />
+    {/if}
   {/if}
 </aside>
 
 {#snippet fileRow(f: GraphFile, label: string, depth: number)}
-  <li role="treeitem" aria-selected={selectedFile === f.path} class:selected={selectedFile === f.path} style:padding-left="{depth * 12 + 20}px">
-    <button class="row-button" title={f.oldPath ? `${f.oldPath} → ${f.path}` : f.path} onclick={() => (selectedFile = f.path)}>
+  <li role="treeitem" aria-selected={selectedFile === f.path} class:selected={selectedFile === f.path}>
+    <button
+      class="row-button"
+      style:padding-left="{depth * 12 + 20}px"
+      title="{f.oldPath ? `${f.oldPath} → ${f.path}` : f.path} (double-click or Enter for the full diff)"
+      onclick={() => (selectedFile = f.path)}
+      ondblclick={() => openDiff(f)}
+      onkeydown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          openDiff(f);
+        }
+      }}
+      onpointerenter={() => hover(f.path)}
+      onpointerleave={() => hover(null)}
+    >
       <span class="status s-{f.status}" title={STATUS[f.status] ?? f.status}>{f.status}</span>
       <span class="name">{label}</span>
       {#if isOpen(f)}<i class="codicon codicon-circle-filled open-badge" title="Open in editor" aria-label="open in editor"></i>{/if}
@@ -230,7 +293,7 @@
     margin: 0;
     padding: 0;
   }
-  li.selected {
+  li.selected .row-button {
     background: var(--gvx-selection);
     color: var(--gvx-selection-text);
   }
