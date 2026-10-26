@@ -43,7 +43,7 @@ const git = (...args: string[]) =>
 export function defineSuite(): void {
   describe('GitVision X — M0 foundation', () => {
     before(async () => {
-      const ext = vscode.extensions.getExtension('tigranmk.gitvision-x');
+      const ext = vscode.extensions.getExtension('TigranMkrtchyan.gitvision-x');
       assert.ok(ext, 'extension is installed');
       await ext.activate();
     });
