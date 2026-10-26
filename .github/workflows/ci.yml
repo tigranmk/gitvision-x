@@ -29,8 +29,11 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      # Budgets fail the build on Linux only; macOS and Windows runners miss them at random on slow runs
+      # (PLAN.md D15), so there they are printed, not enforced.
       - name: Performance budgets (×2 slack on shared runners)
-        run: pnpm bench --ci
+        shell: bash
+        run: pnpm bench --ci ${{ runner.os != 'Linux' && '--report-only' || '' }}
       # Report-only: on shared runners even calibrated timings of unchanged code swing past 10% (Linux once
       # +73%), so a failing gate would fail at random. See PLAN.md D15 for how to enforce it.
       - name: Performance regression report (>10% vs baseline, normalised)

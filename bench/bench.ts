@@ -2,6 +2,7 @@
  * Performance gates (M0 index, M1 blame incl. D11). Runs the real bundled worker against the generated fixtures.
  *   pnpm bench          local budgets
  *   pnpm bench --ci     budgets × CI_SLACK (shared CI runners are slower and noisier)
+ *   --report-only       print budget misses without failing (macOS/Windows CI runners, PLAN.md D15)
  */
 import { execFile, execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,6 +17,7 @@ const WIDE = path.join(ROOT, 'test/fixtures/repos/wide-100k');
 const WORKER = path.join(ROOT, 'dist/worker.js');
 const CI = process.argv.includes('--ci');
 const CI_SLACK = 2;
+const REPORT_ONLY = process.argv.includes('--report-only');
 export const CALIBRATION_GIT = 'calibration: git log of 100k commits';
 export const CALIBRATION_CPU = 'calibration: JS parse/sort/map, 200k rows';
 
@@ -328,7 +330,9 @@ async function main() {
   console.log(`\nwrote ${path.relative(ROOT, file)}`);
   if (failures.length) {
     console.error(`\nBUDGET MISSED: ${failures.map((f) => f.name).join('; ')}`);
-    process.exit(1);
+    if (!REPORT_ONLY) process.exit(1);
+    console.log('(report only: not failing)');
+    return;
   }
   console.log('all budgets met');
 }

@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased — commit graph, time travel and conflict resolution
+## 0.1.0 — first public preview (2026-10-26)
+
+### Commit graph, time travel and conflict resolution
 
 - **Getting started walkthrough** and screenshots.
 - **Accessibility:** hovering a lane names its branch; high-contrast themes outline rows and chips; buttons
@@ -32,7 +34,7 @@
 - Fixed: **Open diff** from the blame hover showed an empty diff when the folder was opened through a
   symbolic link (for example under `/var` on macOS).
 
-## 0.0.1 — first preview
+### Inline blame (built as 0.0.1, never published)
 
 - **Blame on the current line:** author, age and commit message in faded text at the end of the line.
   Your own commits show as "You"; lines you haven't committed yet show **Not committed yet**, tracked
