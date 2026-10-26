@@ -72,7 +72,7 @@ try {
       '--user-data-dir',
       userData,
       '--log',
-      'tigranmk.gitvision-x:trace',
+      'TigranMkrtchyan.gitvision-x:trace',
     ],
     extensionTestsEnv: { GVX_WORKSPACE: workspace, GVX_WORKSPACE_REAL: realpathSync.native(workspace) },
   });

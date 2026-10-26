@@ -3,7 +3,7 @@
   "displayName": "GitVision X",
   "description": "Fast, quiet git blame for the line you're on, and a commit graph that follows your cursor.",
   "version": "0.1.0",
-  "publisher": "tigranmk",
+  "publisher": "TigranMkrtchyan",
   "preview": true,
   "license": "MIT",
   "icon": "media/icon.png",

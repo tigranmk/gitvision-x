@@ -50,7 +50,7 @@ const remoteSh = (script, input) =>
 // COPYFILE_DISABLE: macOS tar would otherwise add ._* metadata files.
 const tar = (dir, ...entries) =>
   execFileSync('tar', ['-C', dir, '-cf', '-', ...entries], { maxBuffer: 1 << 28, env: { ...process.env, COPYFILE_DISABLE: '1' } });
-remoteSh(`rm -rf ${REMOTE} ~/.vscode-server/data/User/globalStorage/tigranmk.gitvision-x && mkdir -p ${REMOTE}/ext/out/integration ${REMOTE}/small`);
+remoteSh(`rm -rf ${REMOTE} ~/.vscode-server/data/User/globalStorage/tigranmkrtchyan.gitvision-x && mkdir -p ${REMOTE}/ext/out/integration ${REMOTE}/small`);
 remoteSh(`tar -C ${REMOTE}/ext -xf -`, tar(ROOT, 'package.json', 'dist'));
 remoteSh(`tar -C ${REMOTE}/ext/out/integration -xf -`, tar(path.join(ROOT, 'out/integration'), 'remote.cjs'));
 remoteSh(`tar -C ${REMOTE}/small -xf -`, tar(path.join(ROOT, 'test/fixtures/repos/small'), '.'));
