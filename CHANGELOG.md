@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0 — 2026-10-29
+
+- **Graph:** the filter can show any one local or remote branch's history, not only all branches or
+  the current one.
+
 ## 0.1.0 — first public preview (2026-10-26)
 
 ### Commit graph, time travel and conflict resolution

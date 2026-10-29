@@ -5,7 +5,7 @@ The **GitVision** panel shows every commit, smoothly, even in repositories with 
 - As you move in the editor, the commit that last changed your line is highlighted. Pause, and the
   line's whole history is ringed.
 - Click a commit for its message and changed files; hover a file for a small diff.
-- Press <kbd>/</kbd> to search, or filter to the current branch or the active file.
+- Press <kbd>/</kbd> to search, or filter to the current branch, any other branch, or the active file.
 - Right-click a commit for checkout, branch, tag, cherry-pick, revert, reset and compare. Drag one
   branch label onto another to merge or rebase. Every change to your repository asks first.
 

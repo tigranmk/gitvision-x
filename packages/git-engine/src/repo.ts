@@ -47,8 +47,10 @@ const SHA_RE = /^[0-9a-f]{40}$/;
  * then the loose ref or packed-refs in the common dir. Returns null when that is not possible
  * (reftable, unborn branch, unusual layouts); callers then fall back to `git rev-parse`.
  */
-export async function readHeadSha(gitDir: string, commonDir: string): Promise<string | null> {
-  let ref = 'HEAD';
+export const readHeadSha = (gitDir: string, commonDir: string) => readRefSha(gitDir, commonDir, 'HEAD');
+
+/** Like readHeadSha for any ref (e.g. `refs/heads/main`), following symbolic refs. */
+export async function readRefSha(gitDir: string, commonDir: string, ref: string): Promise<string | null> {
   for (let depth = 0; depth < 5; depth++) {
     const dir = perWorktree(ref) ? gitDir : commonDir;
     let content = await readFile(path.join(dir, ref), 'utf8').catch(() => null);

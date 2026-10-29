@@ -13,7 +13,8 @@
 
   let { rpc }: { rpc: HostRpc } = $props();
 
-  type Filter = 'all' | 'branch' | 'file';
+  /** `ref:<full ref name>` shows one branch's history. */
+  type Filter = 'all' | 'branch' | 'file' | `ref:refs/${string}`;
   const saved = (vscodeApi.getState() ?? {}) as { filter?: Filter };
 
   let graph = $state<GraphState>({ root: null, total: 0, userEmail: null, sync: null, activeFile: null, conflict: null });
@@ -26,7 +27,9 @@
       ? { kind: 'all', pending }
       : filter === 'branch'
         ? { kind: 'branch', pending }
-        : graph.activeFile
+        : filter.startsWith('ref:')
+          ? { kind: 'ref', ref: filter.slice(4), pending }
+          : graph.activeFile
           ? { kind: 'file', path: graph.activeFile }
           : null,
   );
@@ -56,6 +59,22 @@
     return m;
   });
   const isHead = (r: GraphRef) => r.kind === 'branch' && r.name === refs?.head.branch;
+  const refFilter = (r: GraphRef): Filter => `ref:refs/${r.kind === 'branch' ? 'heads' : 'remotes'}/${r.name}`;
+  /** The last refs seen: kept while a view reloads (which clears `refs`), so the filter's options stay put. */
+  let lastRefs = $state.raw<GraphRef[]>([]);
+  $effect(() => {
+    if (refs) lastRefs = refs.refs;
+  });
+  /** Branches the filter can show, by kind and name. */
+  const branchChoices = $derived.by(() => {
+    const byName = (a: GraphRef, b: GraphRef) => a.name.localeCompare(b.name);
+    const all = lastRefs;
+    return { local: all.filter((r) => r.kind === 'branch').sort(byName), remote: all.filter((r) => r.kind === 'remote').sort(byName) };
+  });
+  // A shown branch that was deleted (or renamed) falls back to all branches.
+  $effect(() => {
+    if (refs && filter.startsWith('ref:') && !refs.refs.some((r) => r.kind !== 'tag' && refFilter(r) === filter)) setFilter('all');
+  });
   /** Detached HEAD: no branch to mark, so the row gets its own HEAD chip. */
   const detachedRow = $derived(refs && !refs.head.branch ? refs.head.row : -1);
 
@@ -333,8 +352,8 @@
       }),
       rpc.on('graph.refresh', (r) => {
         if (r.root !== graph.root) return;
-        // A checkout moves HEAD without changing the index: the branch view changes; refs always may.
-        if (filter === 'branch') void loadView(false);
+        // A checkout or reset moves a tip without changing the index: branch views change; refs always may.
+        if (filter === 'branch' || filter.startsWith('ref:')) void loadView(false);
         else void loadRefs();
       }),
       rpc.on('graph.lineage', (l) => {
@@ -532,6 +551,17 @@
         <option value="all">All branches</option>
         <option value="branch">Current branch</option>
         <option value="file">Active file</option>
+        {#if branchChoices.local.length}
+          <optgroup label="Branch">
+            {#each branchChoices.local as r (r.name)}<option value={refFilter(r)}>{r.name}</option>{/each}
+          </optgroup>
+        {/if}
+        {#if branchChoices.remote.length}
+          <optgroup label="Remote branch">
+            {#each branchChoices.remote as r (r.name)}<option value={refFilter(r)}>{r.name}</option>{/each}
+          </optgroup>
+        {/if}
+        {#if filter.startsWith('ref:') && !lastRefs.length}<option value={filter}>{filter.replace(/^ref:refs\/(heads|remotes)\//, '')}</option>{/if}
       </select>
     </label>
     {#if filter === 'file' && graph.activeFile}<span class="scope" title={graph.activeFile}>{graph.activeFile}</span>{/if}

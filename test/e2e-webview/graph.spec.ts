@@ -1,6 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import * as path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { openGraph, pixelAt, timeFromDelivery, type Harness } from './harness';
+import { FIXTURES, openGraph, pixelAt, timeFromDelivery, type Harness } from './harness';
 
 /** The toolbar above the rows: 28 px + a 1 px border. */
 const TOP = 29;
@@ -160,6 +161,36 @@ test('filters to the current branch or the active file, and keeps the choice', a
 
   // The choice survives a reload of the webview (vscode.setState).
   expect(await page.evaluate(() => (window as unknown as { acquireVsCodeApi(): { getState(): unknown } }).acquireVsCodeApi().getState())).toEqual({ filter: 'file' });
+});
+
+test('filters to a chosen branch, follows its tip, and falls back to all when it is deleted', async ({ page }) => {
+  // A throwaway branch at feature's tip: the fixture is shared, so leave its own branches alone.
+  const cwd = path.join(FIXTURES, 'small');
+  execFileSync('git', ['branch', '-f', 'e2e-pick', 'feature'], { cwd });
+  try {
+    h = await openGraph(page, 'small');
+    const subjects = page.locator('[role=option] .subject');
+    await expect(subjects).toHaveCount(5);
+    const filter = page.getByLabel('Commits shown');
+
+    // Without checking it out: the branch's history while main stays HEAD.
+    await filter.selectOption({ label: 'e2e-pick' });
+    await expect(subjects).toHaveText(['feature work', 'tweak app', 'initial']);
+    await expect(filter).toHaveValue('ref:refs/heads/e2e-pick');
+
+    // Moving the branch (no new commits) moves the view.
+    execFileSync('git', ['branch', '-f', 'e2e-pick', 'feature~1'], { cwd });
+    h.host.emit('graph.refresh', { root: h.root });
+    await expect(subjects).toHaveText(['tweak app', 'initial']);
+
+    // Deleted: back to all branches.
+    execFileSync('git', ['branch', '-D', 'e2e-pick'], { cwd });
+    h.host.emit('graph.refresh', { root: h.root });
+    await expect(filter).toHaveValue('all');
+    await expect(subjects).toHaveCount(5);
+  } finally {
+    spawnSync('git', ['branch', '-D', 'e2e-pick'], { cwd, stdio: 'ignore' }); // when a step above failed
+  }
 });
 
 test('/ searches message, author, SHA and path; Enter steps through matches; Escape closes', async ({ page }) => {

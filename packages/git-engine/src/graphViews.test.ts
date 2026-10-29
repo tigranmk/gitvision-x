@@ -56,6 +56,20 @@ describe('ViewStore', () => {
     expect(subjects((await store.get(repo.dir, base, { kind: 'branch' })).table).sort()).toEqual(['a', 'o1']);
   });
 
+  it('ref = commits reachable from that branch, rebuilt when its tip moves; bad refs show nothing', async () => {
+    const base = await setup();
+    const store = new ViewStore(git);
+    expect(subjects((await store.get(repo.dir, base, { kind: 'ref', ref: 'refs/heads/other' })).table).sort()).toEqual(['a', 'o1']);
+    expect(subjects((await store.get(repo.dir, base, { kind: 'ref', ref: 'refs/heads/side' })).table).sort()).toEqual(['a', 'b', 's1', 's2']);
+    repo.git('pack-refs', '--all'); // read from packed-refs too
+    expect((await store.get(repo.dir, base, { kind: 'ref', ref: 'refs/heads/side' })).table.count).toBe(4);
+    repo.git('branch', '-f', 'side', 'side~1');
+    expect(subjects((await store.get(repo.dir, base, { kind: 'ref', ref: 'refs/heads/side' })).table).sort()).toEqual(['a', 'b', 's1']);
+    for (const ref of ['refs/heads/missing', 'refs/tags/x', 'refs/heads/../../HEAD', 'HEAD~1']) {
+      expect((await store.get(repo.dir, base, { kind: 'ref', ref })).table.count).toBe(0);
+    }
+  });
+
   it('searches subject, author name/email and SHA prefixes, case-insensitively', async () => {
     const base = await setup();
     const rows = (q: string) => searchTable(base, q, 100).rows.map((r) => base.subject(r));

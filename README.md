@@ -57,8 +57,8 @@ editor. It stays smooth at 60 fps on repositories with 100,000+ commits.
 - **Commit details:** click a commit for its message, branches and tags, and the changed files with
   +/− counts. Files you have open are pinned to the top. Hover or select a file for a small side-by-side
   diff; double-click it (or press Enter) for the full diff editor.
-- **Filters and search:** show all branches, the current branch, or only commits that touched the
-  active file. Press <kbd>/</kbd> to search by message, author or SHA; type `path:src/app.ts` (globs
+- **Filters and search:** show all branches, the current branch, any one local or remote branch
+  (without checking it out), or only commits that touched the active file. Press <kbd>/</kbd> to search by message, author or SHA; type `path:src/app.ts` (globs
   work) for commits that touched a path.
 - **Git actions:** right-click a commit to check it out, create a branch or tag, cherry-pick, revert,
   reset the current branch to it, or compare it with HEAD. Drag one branch label onto another to merge
